@@ -4,6 +4,9 @@ CXXFLAGS = -std=c++14 -Wall -Wextra -Wpedantic -O0 -g
 BUILD_DIR = build/wsl
 TARGET = $(BUILD_DIR)/main
 TEST_TARGET = $(BUILD_DIR)/tree_test
+LOAD_TARGET = $(BUILD_DIR)/load_test
+LOAD_FLAGS = -std=c++14 -Wall -Wextra -Wpedantic -O2
+LOAD_ARGS = 1000000 3 all
 
 SRCS = main.cpp
 TEST_SRCS = tests/test_main.cpp tests/test_helpers.cpp tests/rbTree_test.cpp \
@@ -18,7 +21,7 @@ TEST_HEADERS = tests/test_helpers.h tests/type_fixtures.h
 VALGRIND_FLAGS = --leak-check=full --show-leak-kinds=all --track-origins=yes \
                  --errors-for-leak-kinds=all --error-exitcode=1
 
-.PHONY: all run test test-build valgrind valgrind-test clean
+.PHONY: all run test test-build valgrind valgrind-test load-test clean
 
 all: $(TARGET)
 
@@ -73,5 +76,12 @@ valgrind-test: $(TEST_TARGET)
 	# Preserve the test operator new used to simulate allocation failures.
 	valgrind $(VALGRIND_FLAGS) --soname-synonyms=somalloc=nouserintercepts ./$(TEST_TARGET)
 
+$(LOAD_TARGET): load_tests.cpp $(HEADERS) makefile
+	mkdir -p $(dir $@)
+	$(CXX) $(LOAD_FLAGS) load_tests.cpp -o $@
+
+load-test: $(LOAD_TARGET)
+	./$(LOAD_TARGET) $(LOAD_ARGS)
+
 clean:
-	rm -f $(OBJS) $(TEST_OBJS) $(TARGET) $(TEST_TARGET)
+	rm -f $(OBJS) $(TEST_OBJS) $(TARGET) $(TEST_TARGET) $(LOAD_TARGET)
