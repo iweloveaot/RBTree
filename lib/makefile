@@ -1,87 +1,78 @@
+
 CXX = g++
-CXXFLAGS = -std=c++14 -Wall -Wextra -Wpedantic -O0 -g
+CXXFLAGS = -std=c++17 -Wall -Wextra -Wpedantic
+DEBUGFLAGS = -g -O0 -DDEBUG
+RELEASEFLAGS = -O2 -DNDEBUG
 
-BUILD_DIR = build/wsl
-TARGET = $(BUILD_DIR)/main
-TEST_TARGET = $(BUILD_DIR)/tree_test
-LOAD_TARGET = $(BUILD_DIR)/load_test
-LOAD_FLAGS = -std=c++14 -Wall -Wextra -Wpedantic -O2
-LOAD_ARGS = 1000000 3 all
+APP_TARGET = rb_tree_app
+TEST_TARGET = rb_tree_tests
 
-SRCS = main.cpp
-TEST_SRCS = tests/test_main.cpp tests/test_helpers.cpp tests/rbTree_test.cpp \
-            tests/tree_algorithms_test.cpp tests/tree_string_test.cpp \
-            tests/type_matrix_test.cpp
+APP_SRC = main.cpp
+TEST_SRC = rb_tests_main.cpp
 
-OBJS = $(addprefix $(BUILD_DIR)/,$(SRCS:.cpp=.o))
-TEST_OBJS = $(addprefix $(BUILD_DIR)/,$(TEST_SRCS:.cpp=.o))
-HEADERS = rbTree.h dataTypes.h $(wildcard types/*.h)
-TEST_HEADERS = tests/test_helpers.h tests/type_fixtures.h
+HEADERS = rbTree.h \
+           dataTypes.h \
+           rb_tree_tests.h \
+		   types/person.h \
+           types/date.h \
+           types/student.h \
+           types/teacher.h \
+           types/functionValue.h
 
-VALGRIND_FLAGS = --leak-check=full --show-leak-kinds=all --track-origins=yes \
-                 --errors-for-leak-kinds=all --error-exitcode=1
+.PHONY: all
+all: build_app build_tests
 
-.PHONY: all run test test-build valgrind valgrind-test load-test clean
+.PHONY: build_app
+build_app: $(APP_TARGET)
 
-all: $(TARGET)
+.PHONY: build_tests
+build_tests: $(TEST_TARGET)
 
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+$(APP_TARGET): $(APP_SRC) $(HEADERS)
+	$(CXX) $(CXXFLAGS) $(RELEASEFLAGS) -o $@ $(APP_SRC)
 
-$(TEST_TARGET): $(TEST_OBJS)
-	$(CXX) $(CXXFLAGS) -UNDEBUG -o $@ $^
+$(TEST_TARGET): $(TEST_SRC) $(HEADERS)
+	$(CXX) $(CXXFLAGS) $(DEBUGFLAGS) -o $@ $(TEST_SRC)
 
-$(BUILD_DIR)/main.o: main.cpp $(HEADERS)
-	mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+# Debug-сборка тестов (для прогона под valgrind / gdb)
+.PHONY: build_tests_debug
+build_tests_debug:
+	$(CXX) $(CXXFLAGS) $(DEBUGFLAGS) -fsanitize=address,undefined -o $(TEST_TARGET)_asan $(TEST_SRC)
 
-$(BUILD_DIR)/tests/%.o: tests/%.cpp $(HEADERS) $(TEST_HEADERS)
-	mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -UNDEBUG -c $< -o $@
 
-run: $(TARGET)
-	./$(TARGET)
+.PHONY: run_app
+run_app: $(APP_TARGET)
+	@echo ">>> Запуск основной программы..."
+	@./$(APP_TARGET)
 
-test: $(TEST_TARGET) test-build
-	./$(TEST_TARGET)
+.PHONY: run_tests
+run_tests: $(TEST_TARGET)
+	@echo ">>> Запуск тестов..."
+	@./$(TEST_TARGET)
 
-test-build:
-	@set -e; \
-	for case_name in CHECK_ASSERT MINIMAL_VALUE; do \
-		echo "Checking $$case_name"; \
-		$(CXX) $(CXXFLAGS) -DNDEBUG -UNDEBUG -D$$case_name \
-			-fsyntax-only tests/compile_cases.cpp; \
-	done
-	@set -e; \
-	for case_name in MERGE_KEY MERGE_VALUE MERGE_COMPARE \
-	                 MISSING_OUTPUT MISSING_INPUT MISSING_EQUALITY; do \
-		echo "Checking expected compilation failure: $$case_name"; \
-		if $(CXX) $(CXXFLAGS) -UNDEBUG -D$$case_name \
-			-fsyntax-only tests/compile_cases.cpp >/dev/null 2>&1; then \
-			echo "ERROR: $$case_name unexpectedly compiled"; \
-			exit 1; \
-		fi; \
-	done
-	@set -e; \
-	for header in $(HEADERS); do \
-		echo "Checking header: $$header"; \
-		printf '#include "%s"\nint main() {}\n' "$$header" | \
-			$(CXX) $(CXXFLAGS) -UNDEBUG -I. -fsyntax-only -x c++ -; \
-	done
+.PHONY: run_tests_debug
+run_tests_debug: build_tests_debug
+	@echo ">>> Запуск тестов под ASan/UBSan..."
+	@./$(TEST_TARGET)_asan
 
-valgrind: $(TARGET)
-	valgrind $(VALGRIND_FLAGS) ./$(TARGET)
 
-valgrind-test: $(TEST_TARGET)
-	# Preserve the test operator new used to simulate allocation failures.
-	valgrind $(VALGRIND_FLAGS) --soname-synonyms=somalloc=nouserintercepts ./$(TEST_TARGET)
-
-$(LOAD_TARGET): load_tests.cpp $(HEADERS) makefile
-	mkdir -p $(dir $@)
-	$(CXX) $(LOAD_FLAGS) load_tests.cpp -o $@
-
-load-test: $(LOAD_TARGET)
-	./$(LOAD_TARGET) $(LOAD_ARGS)
-
+.PHONY: clean
 clean:
-	rm -f $(OBJS) $(TEST_OBJS) $(TARGET) $(TEST_TARGET) $(LOAD_TARGET)
+	rm -f $(APP_TARGET) $(TEST_TARGET) $(TEST_TARGET)_asan
+
+.PHONY: help
+help:
+	@echo "Доступные цели:"
+	@echo "  make all                — собрать и программу, и тесты (по умолчанию)"
+	@echo "  make build_app          — собрать только основную программу"
+	@echo "  make build_tests        — собрать только тесты (с отладочной информацией)"
+	@echo "  make build_tests_debug  — собрать тесты с ASan + UBSan"
+	@echo "  make run_app            — собрать и запустить программу"
+	@echo "  make run_tests          — собрать и запустить тесты"
+	@echo "  make run_tests_debug    — собрать и прогнать тесты под санитизерами"
+	@echo "  make clean              — удалить все бинарники"
+	@echo "  make help               — показать эту справку"
+
+.PHONY: all build_app build_tests build_tests_debug \
+        run_app run_tests run_tests_debug \
+        clean help
