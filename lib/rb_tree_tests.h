@@ -10,7 +10,7 @@
 #include "dataTypes.h"
 #include "traversals.h"
 
-// ====================== СЧЁТЧИКИ И МАКРОСЫ ======================
+
 int rb_tests_passed = 0;
 int rb_tests_failed = 0;
 
@@ -53,7 +53,6 @@ int rb_tests_failed = 0;
         if (!caught) throw std::runtime_error(std::string("ASSERT_THROW failed: ") + #expr + " did not throw " + #exc_type); \
     } while (0)
 
-// ====================== ФУНКТОРЫ ДЛЯ ТЕСТОВ ======================
 
 struct PrintIntKV {
     void operator()(const int& k, const int& v) const {
@@ -106,7 +105,8 @@ struct DoubleValue {
     }
 };
 
-// ====================== ХЕЛПЕРЫ ======================
+
+
 template <typename Tree, typename K, typename V>
 std::vector<std::pair<K, V>> collect_lnr(const Tree& tree) {
     std::vector<K> keys;
@@ -143,7 +143,7 @@ void assert_roundtrip(const Tree& original) {
         throw std::runtime_error("Round-trip failed: serialized strings differ");
 }
 
-// ====================== БАЗОВЫЕ ОПЕРАЦИИ (ШАБЛОНЫ) ======================
+// базовые операции
 
 template <typename Tree, typename K, typename V>
 void impl_default_ctor() {
@@ -258,7 +258,7 @@ void impl_move_assign(K k1, V v1, K k2, V v2) {
     ASSERT_TRUE(a.empty());
 }
 
-// ====================== КОНКРЕТНЫЕ TEST_CASE ДЛЯ КАЖДОГО ТИПА ======================
+// конкретные тесты для каждого типа 
 
 // --- IntegerTree ---
 TEST_CASE(IntegerTree_DefaultCtor)         { impl_default_ctor<IntegerTree, int, int>(); }
@@ -426,7 +426,7 @@ TEST_CASE(TeacherTree_RoundTrip) {
     assert_roundtrip(t);
 }
 
-// ====================== СЕРИАЛИЗАЦИЯ ======================
+//  СЕРИАЛИЗАЦИЯ 
 
 TEST_CASE(IntegerTree_RoundTrip) {
     IntegerTree t;
@@ -461,7 +461,7 @@ TEST_CASE(FromString_RootMustBeBlack) {
     ASSERT_FALSE(t.from_string(bad));
 }
 
-// ====================== ФУНКЦИОНАЛЬНЫЕ ОПЕРАЦИИ ======================
+// ФУНКЦИОНАЛЬНЫЕ ОПЕРАЦИИ 
 
 TEST_CASE(IntegerTree_Map) {
     IntegerTree t;
@@ -572,7 +572,7 @@ TEST_CASE(IntegerTree_Traverse_NLR) {
     ASSERT_EQ(values[0], 20);
 }
 
-// ====================== ИНВАРИАНТЫ КЧ-ДЕРЕВА ======================
+// ИНВАРИАНТЫ КЧ-ДЕРЕВА 
 
 TEST_CASE(IntegerTree_BalanceAfterManyInserts) {
     IntegerTree t;
@@ -597,7 +597,7 @@ TEST_CASE(IntegerTree_SelfAssignment) {
     ASSERT_EQ(t.find(1)->value, 10);
 }
 
-// ====================== DETECTOR УТЕЧЕК ПАМЯТИ ======================
+// утечки памяти
 class TreeTestObject {
 public:
     static int alive_count;
@@ -623,8 +623,6 @@ inline std::ostream& operator<<(std::ostream& s, const TreeTestObject& o) { retu
 inline std::istream& operator>>(std::istream& s, TreeTestObject& o) { return s >> o.value; }
 
 using MemTree = RedBlackTree<int, TreeTestObject>;
-
-// ====================== УТЕЧКИ ПАМЯТИ ======================
 
 TEST_CASE(Memory_DefaultCtorNoLeak) {
     TreeTestObject::reset();
@@ -761,7 +759,7 @@ TEST_CASE(Memory_StressInsertErase) {
     ASSERT_EQ(TreeTestObject::alive_count, 0);
 }
 
-// ====================== НЕГАТИВНЫЕ ТЕСТЫ from_string ======================
+// НЕГАТИВНЫЕ ТЕСТЫ from_string 
 
 TEST_CASE(FromString_BSTViolation_LeftChildGreater) {
     std::string bad = "RBT\n. 1 1:5 1:0\nL 1 1:7 1:0\n";
@@ -836,7 +834,7 @@ TEST_CASE(FromString_NonBlackRoot) {
     ASSERT_FALSE(t.from_string(bad));
 }
 
-// ====================== find_by_path С allow_parent ======================
+// find_by_path С allow_parent 
 
 TEST_CASE(FindByPath_WithParent) {
     IntegerTree t;
@@ -878,7 +876,7 @@ TEST_CASE(FindByPath_EmptyPath) {
     ASSERT_EQ(node->key, 5);
 }
 
-// ====================== КОНСТРУКТОР С КОМПАРАТОРОМ ======================
+// КОНСТРУКТОР С КОМПАРАТОРОМ 
 
 TEST_CASE(Ctor_WithComparator) {
     auto rev = [](const int& a, const int& b){ return a > b; };
@@ -893,7 +891,7 @@ TEST_CASE(Ctor_WithComparator) {
     ASSERT_EQ(keys[2], 1);
 }
 
-// ====================== ГЕТТЕРЫ ======================
+// ГЕТТЕРЫ 
 
 TEST_CASE(Getters_RootNilCompare) {
     IntegerTree t;
@@ -909,7 +907,7 @@ TEST_CASE(Getters_RootNilCompare) {
     ASSERT_FALSE(t.get_root() == t.get_nil());
 }
 
-// ====================== СЛОЖНЫЙ ERASE ======================
+// СЛОЖНЫЙ ERASE 
 
 TEST_CASE(Erase_NodeWithTwoChildren) {
     IntegerTree t;
@@ -948,7 +946,7 @@ TEST_CASE(Erase_UntilEmpty) {
     ASSERT_NULL(t.find(1));
 }
 
-// ====================== MERGE ПРИ ПЕРЕСЕЧЕНИИ ======================
+// MERGE ПРИ ПЕРЕСЕЧЕНИИ 
 
 TEST_CASE(Merge_OverlappingKeysKeepsThis) {
     IntegerTree a, b;
@@ -960,7 +958,7 @@ TEST_CASE(Merge_OverlappingKeysKeepsThis) {
     ASSERT_EQ(m.find(3)->value, 300);
 }
 
-// ====================== CONTAINS_SUBTREE ПУСТОЙ ======================
+// CONTAINS_SUBTREE ПУСТОЙ 
 
 TEST_CASE(ContainsSubtree_EmptyOther) {
     IntegerTree big;
@@ -985,14 +983,14 @@ TEST_CASE(ContainsSubtree_ValueMismatch) {
     ASSERT_FALSE(big.contains_subtree(small));
 }
 
-// ====================== FIND НА ПУСТОМ ДЕРЕВЕ ======================
+// FIND НА ПУСТОМ ДЕРЕВЕ 
 
 TEST_CASE(Find_OnEmptyTree) {
     IntegerTree t;
     ASSERT_NULL(t.find(42));
 }
 
-// ====================== SELF-MOVE-ASSIGNMENT ======================
+//  SELF-MOVE-ASSIGNMENT 
 
 TEST_CASE(SelfMoveAssignment) {
     IntegerTree t;
@@ -1003,7 +1001,7 @@ TEST_CASE(SelfMoveAssignment) {
     ASSERT_NOT_NULL(t.find(2));
 }
 
-// ====================== DELETE_FIXUP STRESS ======================
+// DELETE_FIXUP STRESS 
 
 TEST_CASE(DeleteFixup_StressSequential) {
     IntegerTree t;
@@ -1025,7 +1023,7 @@ TEST_CASE(DeleteFixup_RandomPattern) {
     assert_roundtrip(t);
 }
 
-// ====================== CHAR AS KEY/VALUE ======================
+// CHAR AS KEY/VALUE 
 
 TEST_CASE(CharTree_RoundTrip) {
     RedBlackTree<char, char> t;
@@ -1039,7 +1037,7 @@ TEST_CASE(CharTree_RoundTrip) {
     ASSERT_EQ(t2.find('z')->value, 'Z');
 }
 
-// ====================== ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ ДЛЯ СТРАТЕГИЙ ======================
+//  ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ ДЛЯ СТРАТЕГИЙ 
 
 TEST_CASE(IntegerTree_Traverse_AllStrategies) {
     IntegerTree t;
@@ -1061,7 +1059,6 @@ TEST_CASE(IntegerTree_Traverse_AllStrategies) {
     ASSERT_EQ(lrn_values.size(), (std::size_t)3);
 }
 
-// ====================== АГРЕГАТОР ======================
 
 void run_rb_tree_tests() {
     std::cout << "\n========================================\n";
