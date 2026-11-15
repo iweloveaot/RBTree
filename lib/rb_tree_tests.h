@@ -8,6 +8,7 @@
 #include <complex>
 #include <stdexcept>
 #include "dataTypes.h"
+#include "traversals.h"
 
 // ====================== СЧЁТЧИКИ И МАКРОСЫ ======================
 int rb_tests_passed = 0;
@@ -52,14 +53,72 @@ int rb_tests_failed = 0;
         if (!caught) throw std::runtime_error(std::string("ASSERT_THROW failed: ") + #expr + " did not throw " + #exc_type); \
     } while (0)
 
+// ====================== ФУНКТОРЫ ДЛЯ ТЕСТОВ ======================
+
+struct PrintIntKV {
+    void operator()(const int& k, const int& v) const {
+        std::cout << k << ":" << v << " ";
+    }
+};
+
+struct CollectKeys {
+    std::vector<int>& keys;
+    void operator()(const int& k, const int&) const {
+        keys.push_back(k);
+    }
+};
+
+struct CollectKeysComplex {
+    std::vector<Complex>& keys;
+    void operator()(const Complex& k, const Complex&) const {
+        keys.push_back(k);
+    }
+};
+
+struct CollectValues {
+    std::vector<int>& values;
+    void operator()(const int&, const int& v) const {
+        values.push_back(v);
+    }
+};
+
+struct SumAction {
+    int operator()(const int& acc, const int& v) const {
+        return acc + v;
+    }
+};
+
+struct ProductAction {
+    int operator()(const int& acc, const int& v) const {
+        return acc * v;
+    }
+};
+
+struct IsEvenPredicate {
+    bool operator()(const int& v) const {
+        return v % 2 == 0;
+    }
+};
+
+struct DoubleValue {
+    int operator()(const int& v) const {
+        return v * 2;
+    }
+};
+
 // ====================== ХЕЛПЕРЫ ======================
 template <typename Tree, typename K, typename V>
 std::vector<std::pair<K, V>> collect_lnr(const Tree& tree) {
+    std::vector<K> keys;
+    std::vector<V> values;
+    CollectKeys key_collector{keys};
+    CollectValues value_collector{values};
+    tree.traverse(traversal::LNR{}, key_collector);
+    tree.traverse(traversal::LNR{}, value_collector);
     std::vector<std::pair<K, V>> result;
-    tree.traverse(Tree::TraversalOrder::LNR,
-        [&](const K& key, const V& value) {
-            result.emplace_back(key, value);
-        });
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        result.emplace_back(keys[i], values[i]);
+    }
     return result;
 }
 
@@ -72,16 +131,14 @@ void assert_vec_eq(const Vec& a, const Vec& b) {
             throw std::runtime_error("Vectors differ at index " + std::to_string(i));
 }
 
-// Универсальный round-trip тест — сравниваем через to_string,
-// чтобы не зависеть от типов Key/Value
+// Round-trip тест: to_string -> from_string -> сравнение
 template <typename Tree>
-void assert_roundtrip(const Tree& original,
-                      typename Tree::TraversalOrder order = Tree::TraversalOrder::LNR) {
-    std::string serialized = original.to_string(order);
+void assert_roundtrip(const Tree& original) {
+    std::string serialized = original.to_string();
     Tree restored;
     if (!restored.from_string(serialized))
         throw std::runtime_error("from_string returned false on valid serialization");
-    std::string serialized2 = restored.to_string(order);
+    std::string serialized2 = restored.to_string();
     if (serialized != serialized2)
         throw std::runtime_error("Round-trip failed: serialized strings differ");
 }
@@ -117,7 +174,7 @@ template <typename Tree, typename K, typename V>
 void impl_insert_duplicate(K k, V v1, V v2) {
     Tree t;
     t.insert(k, v1);
-    t.insert(k, v2);  // должно игнорироваться
+    t.insert(k, v2);
     ASSERT_EQ(t.find(k)->value, v1);
 }
 
@@ -152,7 +209,7 @@ template <typename Tree, typename K, typename V>
 void impl_erase_non_existing(K k) {
     Tree t;
     t.insert(k, V());
-    ASSERT_FALSE(t.erase(K()));  // ключ, которого нет
+    ASSERT_FALSE(t.erase(K()));
 }
 
 template <typename Tree, typename K, typename V>
@@ -167,7 +224,6 @@ void impl_copy_ctor(K k, V v) {
     original.insert(k, v);
     Tree copy(original);
     ASSERT_EQ(copy.find(k)->value, v);
-    // независимость: меняем оригинал — копия не меняется
     original.erase(k);
     ASSERT_NOT_NULL(copy.find(k));
 }
@@ -201,33 +257,6 @@ void impl_move_assign(K k1, V v1, K k2, V v2) {
     ASSERT_NULL(b.find(k2));
     ASSERT_TRUE(a.empty());
 }
-
-// ====================== DETECTOR УТЕЧЕК ПАМЯТИ ======================
-class TreeTestObject {
-public:
-    static int alive_count;
-    static int total_created;
-    int value;
-
-    TreeTestObject(int v = 0) : value(v) { ++alive_count; ++total_created; }
-    TreeTestObject(const TreeTestObject& o) : value(o.value) { ++alive_count; ++total_created; }
-    TreeTestObject(TreeTestObject&& o) noexcept : value(o.value) { ++alive_count; o.value = -1; }
-    TreeTestObject& operator=(const TreeTestObject& o) { value = o.value; return *this; }
-    TreeTestObject& operator=(TreeTestObject&& o) noexcept { value = o.value; o.value = -1; return *this; }
-    ~TreeTestObject() { --alive_count; }
-
-    bool operator==(const TreeTestObject& o) const { return value == o.value; }
-    bool operator<(const TreeTestObject& o) const { return value < o.value; }
-
-    static void reset() { alive_count = 0; total_created = 0; }
-};
-int TreeTestObject::alive_count = 0;
-int TreeTestObject::total_created = 0;
-
-inline std::ostream& operator<<(std::ostream& s, const TreeTestObject& o) { return s << o.value; }
-inline std::istream& operator>>(std::istream& s, TreeTestObject& o) { return s >> o.value; }
-
-using MemTree = RedBlackTree<int, TreeTestObject>;
 
 // ====================== КОНКРЕТНЫЕ TEST_CASE ДЛЯ КАЖДОГО ТИПА ======================
 
@@ -283,11 +312,13 @@ TEST_CASE(ComplexTree_CustomComparator) {
     t.insert(Complex(1, 5), Complex(10, 10));
     t.insert(Complex(1, 2), Complex(20, 20));
     t.insert(Complex(2, 0), Complex(30, 30));
-    auto vec = collect_lnr<ComplexTree, Complex, Complex>(t);
-    ASSERT_EQ(vec.size(), (std::size_t)3);
-    ASSERT_EQ(vec[0].first, Complex(1, 2));
-    ASSERT_EQ(vec[1].first, Complex(1, 5));
-    ASSERT_EQ(vec[2].first, Complex(2, 0));
+    std::vector<Complex> keys;
+    CollectKeysComplex collector{keys};
+    t.traverse(traversal::LNR{}, collector);
+    ASSERT_EQ(keys.size(), (std::size_t)3);
+    ASSERT_EQ(keys[0], Complex(1, 2));
+    ASSERT_EQ(keys[1], Complex(1, 5));
+    ASSERT_EQ(keys[2], Complex(2, 0));
 }
 TEST_CASE(ComplexTree_EraseExisting)       { impl_erase_existing<ComplexTree, Complex, Complex>(Complex(1,1), Complex(0,0), Complex(2,2), Complex(0,0)); }
 TEST_CASE(ComplexTree_CopyCtor)            { impl_copy_ctor<ComplexTree, Complex, Complex>(Complex(1,1), Complex(2,2)); }
@@ -306,7 +337,6 @@ TEST_CASE(StringTree_EraseFromEmpty)       { impl_erase_from_empty<StringTree, s
 TEST_CASE(StringTree_CopyCtor)             { impl_copy_ctor<StringTree, std::string, std::string>("k", "v"); }
 TEST_CASE(StringTree_MoveCtor)             { impl_move_ctor<StringTree, std::string, std::string>("k", "v"); }
 TEST_CASE(StringTree_SpecialCharacters) {
-    // Пробелы, кавычки, переносы строк — формат length:text должен переваривать
     StringTree t;
     t.insert("key with spaces", "value\twith\ttabs");
     t.insert("key\"quote", "value\nnewline");
@@ -322,9 +352,9 @@ TEST_CASE(FunctionTree_DefaultCtor)        { impl_default_ctor<FunctionTree, int
 TEST_CASE(FunctionTree_InsertSingle)       { impl_insert_single<FunctionTree, int, FunctionValue>(1, FunctionValue(2)); }
 TEST_CASE(FunctionTree_InsertMultiple) {
     FunctionTree t;
-    t.insert(1, FunctionValue(1));  // identity
-    t.insert(2, FunctionValue(2));  // is_even
-    t.insert(3, FunctionValue(3));  // sign
+    t.insert(1, FunctionValue(1));
+    t.insert(2, FunctionValue(2));
+    t.insert(3, FunctionValue(3));
     ASSERT_EQ(t.find(1)->value.call(42), 42);
     ASSERT_EQ(t.find(2)->value.call(4), 1);
     ASSERT_EQ(t.find(2)->value.call(5), 0);
@@ -332,7 +362,7 @@ TEST_CASE(FunctionTree_InsertMultiple) {
 }
 TEST_CASE(FunctionTree_EmptyCallThrows) {
     FunctionTree t;
-    t.insert(1, FunctionValue(0));  // empty
+    t.insert(1, FunctionValue(0));
     ASSERT_THROW(t.find(1)->value.call(10), std::logic_error);
 }
 TEST_CASE(FunctionTree_InvalidIdThrows) {
@@ -369,7 +399,6 @@ TEST_CASE(StudentTree_MoveCtor) {
     impl_move_ctor<StudentTree, PersonID, Student>("001", s);
 }
 TEST_CASE(StudentTree_RoundTrip) {
-    // std::quoted в операторе << должен корректно обрабатывать пробелы в именах
     StudentTree t;
     t.insert("001", Student(Person("001", "John", "Fitzgerald", "Kennedy", Date(29, 5, 1917)), "HS-1", 1));
     t.insert("002", Student(Person("002", "Jane", "", "Doe", Date(1, 1, 2000)), "UNI-3", 3));
@@ -399,19 +428,13 @@ TEST_CASE(TeacherTree_RoundTrip) {
 
 // ====================== СЕРИАЛИЗАЦИЯ ======================
 
-TEST_CASE(IntegerTree_RoundTrip_AllOrders) {
+TEST_CASE(IntegerTree_RoundTrip) {
     IntegerTree t;
     for (int i = 1; i <= 15; ++i) t.insert(i, i * i);
-    assert_roundtrip(t, IntegerTree::TraversalOrder::NLR);
-    assert_roundtrip(t, IntegerTree::TraversalOrder::NRL);
-    assert_roundtrip(t, IntegerTree::TraversalOrder::LNR);
-    assert_roundtrip(t, IntegerTree::TraversalOrder::RNL);
-    assert_roundtrip(t, IntegerTree::TraversalOrder::LRN);
-    assert_roundtrip(t, IntegerTree::TraversalOrder::RLN);
+    assert_roundtrip(t);
 }
 
 TEST_CASE(RealTree_RoundTrip_Precision) {
-    // max_digits10 для long double должен гарантировать round-trip для double
     RealTree t;
     t.insert(1.0/3.0, 1.0);
     t.insert(3.14159265358979323846, 2.0);
@@ -423,14 +446,17 @@ TEST_CASE(FromString_InvalidHeader) {
     IntegerTree t;
     ASSERT_FALSE(t.from_string("XXX\n"));
     ASSERT_FALSE(t.from_string(""));
-    ASSERT_FALSE(t.from_string("LNR"));  // нет \n после заголовка
+    ASSERT_FALSE(t.from_string("RBT"));
+}
+
+TEST_CASE(FromString_InvalidStructure) {
+    IntegerTree t;
+    ASSERT_TRUE(t.from_string("RBT\n"));
+    ASSERT_TRUE(t.empty());
 }
 
 TEST_CASE(FromString_RootMustBeBlack) {
-    // Сформируем строку, в которой корень красный — должно отвергнуться
-    // Формат записи: "path color key_len:key value_len:value\n"
-    // Путь "." = корень. Цвет "0" = красный.
-    std::string bad = "LNR\n. 0 1:1 1:1\n";
+    std::string bad = "RBT\n. 0 1:1 1:1\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
@@ -440,18 +466,17 @@ TEST_CASE(FromString_RootMustBeBlack) {
 TEST_CASE(IntegerTree_Map) {
     IntegerTree t;
     t.insert(1, 10); t.insert(2, 20); t.insert(3, 30);
-    auto mapped = t.map([](const int& v) { return v * 2; });
+    auto mapped = t.map(DoubleValue{});
     ASSERT_EQ(mapped.find(1)->value, 20);
     ASSERT_EQ(mapped.find(2)->value, 40);
     ASSERT_EQ(mapped.find(3)->value, 60);
-    // оригинал не изменился
     ASSERT_EQ(t.find(1)->value, 10);
 }
 
 TEST_CASE(IntegerTree_Where) {
     IntegerTree t;
     for (int i = 1; i <= 10; ++i) t.insert(i, i);
-    auto filtered = t.where([](const int& v) { return v % 2 == 0; });
+    auto filtered = t.where(IsEvenPredicate{});
     for (int i = 1; i <= 10; ++i) {
         auto* n = filtered.find(i);
         if (i % 2 == 0) { ASSERT_NOT_NULL(n); }
@@ -459,11 +484,25 @@ TEST_CASE(IntegerTree_Where) {
     }
 }
 
-TEST_CASE(IntegerTree_Reduce) {
+TEST_CASE(IntegerTree_Reduce_LNR) {
     IntegerTree t;
-    for (int i = 1; i <= 5; ++i) t.insert(i, i);  // значения 1,2,3,4,5
-    int sum = t.reduce<int>(0, [](const int& acc, const int& v) { return acc + v; });
+    for (int i = 1; i <= 5; ++i) t.insert(i, i);
+    int sum = t.reduce(traversal::LNR{}, 0, SumAction{});
     ASSERT_EQ(sum, 15);
+}
+
+TEST_CASE(IntegerTree_Reduce_NLR) {
+    IntegerTree t;
+    for (int i = 1; i <= 5; ++i) t.insert(i, i);
+    int sum = t.reduce(traversal::NLR{}, 0, SumAction{});
+    ASSERT_EQ(sum, 15);
+}
+
+TEST_CASE(IntegerTree_Reduce_Product) {
+    IntegerTree t;
+    for (int i = 1; i <= 4; ++i) t.insert(i, i);
+    int product = t.reduce(traversal::LNR{}, 1, ProductAction{});
+    ASSERT_EQ(product, 24);
 }
 
 TEST_CASE(IntegerTree_Merge) {
@@ -480,7 +519,6 @@ TEST_CASE(IntegerTree_Merge) {
 
 TEST_CASE(IntegerTree_ExtractSubtree) {
     IntegerTree t;
-    // Построим дерево: корень 5, левый ребёнок 3, правый 7
     t.insert(5, 50); t.insert(3, 30); t.insert(7, 70);
     t.insert(2, 20); t.insert(4, 40);
     auto sub = t.extract_subtree(3);
@@ -494,13 +532,8 @@ TEST_CASE(IntegerTree_ExtractSubtree) {
 TEST_CASE(IntegerTree_ContainsSubtree) {
     IntegerTree big;
     big.insert(1, 10); big.insert(2, 20); big.insert(3, 30); big.insert(4, 40);
-    
-    // small должен быть структурно равен поддереву big.
-    // Самый простой способ: small = копия big.
     IntegerTree small(big);
     ASSERT_TRUE(big.contains_subtree(small));
-    
-    // Если добавить лишний ключ, структура изменится → false
     small.insert(99, 99);
     ASSERT_FALSE(big.contains_subtree(small));
 }
@@ -517,28 +550,32 @@ TEST_CASE(IntegerTree_FindByPath) {
     auto* ll = t.find_by_path("LL");
     ASSERT_NOT_NULL(ll);
     ASSERT_EQ(ll->key, 2);
-    ASSERT_NULL(t.find_by_path("RRR"));  // нет такого пути
+    ASSERT_NULL(t.find_by_path("RRR"));
 }
 
-TEST_CASE(IntegerTree_Traverse_AllOrders) {
+TEST_CASE(IntegerTree_Traverse_LNR) {
     IntegerTree t;
     t.insert(2, 20); t.insert(1, 10); t.insert(3, 30);
-    std::vector<int> lnr;
-    t.traverse(IntegerTree::TraversalOrder::LNR, [&](const int&, const int& v){ lnr.push_back(v); });
-    std::vector<int> expected_lnr = {10, 20, 30};
-    assert_vec_eq(lnr, expected_lnr);
+    std::vector<int> values;
+    CollectValues collector{values};
+    t.traverse(traversal::LNR{}, collector);
+    std::vector<int> expected = {10, 20, 30};
+    assert_vec_eq(values, expected);
+}
 
-    std::vector<int> nlr;
-    t.traverse(IntegerTree::TraversalOrder::NLR, [&](const int&, const int& v){ nlr.push_back(v); });
-    ASSERT_EQ(nlr[0], 20);  // корень первый
+TEST_CASE(IntegerTree_Traverse_NLR) {
+    IntegerTree t;
+    t.insert(2, 20); t.insert(1, 10); t.insert(3, 30);
+    std::vector<int> values;
+    CollectValues collector{values};
+    t.traverse(traversal::NLR{}, collector);
+    ASSERT_EQ(values[0], 20);
 }
 
 // ====================== ИНВАРИАНТЫ КЧ-ДЕРЕВА ======================
 
 TEST_CASE(IntegerTree_BalanceAfterManyInserts) {
     IntegerTree t;
-    // Вставляем 1..200 в отсортированном порядке — наивный BST выродился бы в список,
-    // КЧ-дерево обязано сохранить баланс. Round-trip через from_string проверяет инварианты.
     for (int i = 1; i <= 200; ++i) t.insert(i, i);
     assert_roundtrip(t);
 }
@@ -546,7 +583,7 @@ TEST_CASE(IntegerTree_BalanceAfterManyInserts) {
 TEST_CASE(IntegerTree_BalanceAfterInsertsAndErases) {
     IntegerTree t;
     for (int i = 1; i <= 100; ++i) t.insert(i, i);
-    for (int i = 1; i <= 100; i += 2) t.erase(i);  // удаляем нечётные
+    for (int i = 1; i <= 100; i += 2) t.erase(i);
     for (int i = 101; i <= 150; ++i) t.insert(i, i);
     assert_roundtrip(t);
 }
@@ -559,6 +596,33 @@ TEST_CASE(IntegerTree_SelfAssignment) {
     ASSERT_NOT_NULL(t.find(2));
     ASSERT_EQ(t.find(1)->value, 10);
 }
+
+// ====================== DETECTOR УТЕЧЕК ПАМЯТИ ======================
+class TreeTestObject {
+public:
+    static int alive_count;
+    static int total_created;
+    int value;
+
+    TreeTestObject(int v = 0) : value(v) { ++alive_count; ++total_created; }
+    TreeTestObject(const TreeTestObject& o) : value(o.value) { ++alive_count; ++total_created; }
+    TreeTestObject(TreeTestObject&& o) noexcept : value(o.value) { ++alive_count; o.value = -1; }
+    TreeTestObject& operator=(const TreeTestObject& o) { value = o.value; return *this; }
+    TreeTestObject& operator=(TreeTestObject&& o) noexcept { value = o.value; o.value = -1; return *this; }
+    ~TreeTestObject() { --alive_count; }
+
+    bool operator==(const TreeTestObject& o) const { return value == o.value; }
+    bool operator<(const TreeTestObject& o) const { return value < o.value; }
+
+    static void reset() { alive_count = 0; total_created = 0; }
+};
+int TreeTestObject::alive_count = 0;
+int TreeTestObject::total_created = 0;
+
+inline std::ostream& operator<<(std::ostream& s, const TreeTestObject& o) { return s << o.value; }
+inline std::istream& operator>>(std::istream& s, TreeTestObject& o) { return s >> o.value; }
+
+using MemTree = RedBlackTree<int, TreeTestObject>;
 
 // ====================== УТЕЧКИ ПАМЯТИ ======================
 
@@ -603,7 +667,7 @@ TEST_CASE(Memory_CopyAssignNoLeak) {
         MemTree a, b;
         for (int i = 0; i < 20; ++i) a.insert(i, TreeTestObject(i));
         for (int i = 10; i < 40; ++i) b.insert(i, TreeTestObject(i));
-        b = a;  // старое содержимое b должно быть уничтожено
+        b = a;
     }
     ASSERT_EQ(TreeTestObject::alive_count, 0);
 }
@@ -642,13 +706,11 @@ TEST_CASE(Memory_FromStringNoLeak) {
 }
 
 TEST_CASE(Memory_FromStringInvalidNoLeak) {
-    // Даже при откате из-за невалидной строки память не должна течь
     TreeTestObject::reset();
     {
         MemTree t;
-        // Нарушение BST: корень 5, левый ребёнок 7
-        std::string bad = "NLR\n. 1 1:5 1:0\nL 1 1:7 1:0\n";
-        (void)t.from_string(bad);  // должно вернуть false
+        std::string bad = "RBT\n. 1 1:5 1:0\nL 1 1:7 1:0\n";
+        (void)t.from_string(bad);
     }
     ASSERT_EQ(TreeTestObject::alive_count, 0);
 }
@@ -660,7 +722,7 @@ TEST_CASE(Memory_MapWhereReduceNoLeak) {
         for (int i = 0; i < 10; ++i) t.insert(i, TreeTestObject(i));
         auto m = t.map([](const TreeTestObject& v){ return TreeTestObject(v.value * 2); });
         auto w = t.where([](const TreeTestObject& v){ return v.value % 2 == 0; });
-        int sum = t.reduce<int>(0, [](int acc, const TreeTestObject& v){ return acc + v.value; });
+        int sum = t.reduce(traversal::LNR{}, 0, [](int acc, const TreeTestObject& v){ return acc + v.value; });
         (void)sum;
     }
     ASSERT_EQ(TreeTestObject::alive_count, 0);
@@ -702,87 +764,54 @@ TEST_CASE(Memory_StressInsertErase) {
 // ====================== НЕГАТИВНЫЕ ТЕСТЫ from_string ======================
 
 TEST_CASE(FromString_BSTViolation_LeftChildGreater) {
-    // NLR: корень 5, левый ребёнок 7 — нарушение BST
-    std::string bad = "NLR\n. 1 1:5 1:0\nL 1 1:7 1:0\n";
+    std::string bad = "RBT\n. 1 1:5 1:0\nL 1 1:7 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
 TEST_CASE(FromString_BSTViolation_RightChildLess) {
-    // NLR: корень 5, правый ребёнок 3 — нарушение BST
-    std::string bad = "NLR\n. 1 1:5 1:0\nR 1 1:3 1:0\n";
+    std::string bad = "RBT\n. 1 1:5 1:0\nR 1 1:3 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
 TEST_CASE(FromString_TwoRedsInARow) {
-    // NLR: корень красный (должен быть чёрный — уже ловится),
-    // но проверим случай: корень чёрный, его ребёнок красный, и внук тоже красный
-    // Путь: "." корень (чёрный), "L" красный, "LL" красный — нарушение
-    std::string bad = "NLR\n. 1 1:5 1:0\nL 0 1:3 1:0\nLL 0 1:1 1:0\n";
+    std::string bad = "RBT\n. 1 1:5 1:0\nL 0 1:3 1:0\nLL 0 1:1 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
 TEST_CASE(FromString_UnequalBlackHeights) {
-    // Левое поддерево имеет 2 чёрных узла, правое — 1.
-    // NLR: корень 5 (чёрный), левый 3 (чёрный) с левым 1 (чёрный), правый 7 (красный)
-    // Чёрная высота слева = 3, справа = 1
-    std::string bad = "NLR\n. 1 1:5 1:0\nL 1 1:3 1:0\nLL 1 1:1 1:0\nR 0 1:7 1:0\n";
+    std::string bad = "RBT\n. 1 1:5 1:0\nL 1 1:3 1:0\nLL 1 1:1 1:0\nR 0 1:7 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
 TEST_CASE(FromString_InvalidKeyForType) {
-    // Пытаемся прочитать "abc" как int
-    std::string bad = "NLR\n. 1 3:abc 1:0\n";
+    std::string bad = "RBT\n. 1 3:abc 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
 TEST_CASE(FromString_LengthMismatch_TooShort) {
-    // Заявлена длина ключа 10, но текст "12345" — 5 символов
-    std::string bad = "NLR\n. 1 10:12345 1:0\n";
+    std::string bad = "RBT\n. 1 10:12345 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
 TEST_CASE(FromString_InvalidPathCharacter) {
-    // Путь содержит 'X'
-    std::string bad = "NLR\nX 1 1:5 1:0\n";
+    std::string bad = "RBT\nX 1 1:5 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
 TEST_CASE(FromString_TruncatedRecord) {
-    // Обрезанная запись: нет значения
-    std::string bad = "NLR\n. 1 1:5 \n";
+    std::string bad = "RBT\n. 1 1:5 \n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
 
-TEST_CASE(FromString_DuplicateKeys) {
-    // Два узла с ключом 1 — insert второй раз проигнорирует, но check_subtree
-    // может не заметить; главное, что round-trip через to_string такого не выдаст.
-    // Сформируем руками и проверим, что from_string либо отвергнет, либо построит
-    // некорректное дерево. В нашей реализации insert молча пропустит дубликат,
-    // поэтому узел "R 1 1:1 1:0" просто не вставится, и структура разойдётся с ожидаемой.
-    // Проверим, что check_string_subtree всё равно пройдёт (дерево валидно, просто меньше узлов).
-    // Поэтому этот тест — на то, что from_string не падает и возвращает осмысленный результат.
-    std::string dup = "NLR\n. 1 1:5 1:0\nL 1 1:1 1:0\nR 1 1:1 1:0\n";
-    IntegerTree t;
-    // Ожидаем, что либо false (отвергнут дубликат), либо true, но дерево валидно.
-    bool ok = t.from_string(dup);
-    if (ok) {
-        // Проверим, что дерево валидно через round-trip
-        std::string s2 = t.to_string(IntegerTree::TraversalOrder::NLR);
-        IntegerTree t2;
-        ASSERT_TRUE(t2.from_string(s2));
-    }
-    // Если false — тоже нормально, просто дубликат отвергнут
-}
-
-TEST_CASE(FromString_UnknownTraversalOrder) {
+TEST_CASE(FromString_UnknownHeader) {
     std::string bad = "XYZ\n. 1 1:5 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
@@ -793,33 +822,16 @@ TEST_CASE(FromString_EmptyString) {
     ASSERT_FALSE(t.from_string(""));
 }
 
-TEST_CASE(FromString_InvalidStructure) {
-    IntegerTree t;
-    // Только заголовок без записей — это валидная сериализация пустого дерева
-    ASSERT_TRUE(t.from_string("LNR\n"));
-    ASSERT_TRUE(t.empty());
-}
-
 TEST_CASE(FromString_OnlyHeader) {
     IntegerTree t;
-    ASSERT_FALSE(t.from_string("LNR"));  // нет \n — невалидно
+    ASSERT_FALSE(t.from_string("RBT"));
     IntegerTree t2;
-    ASSERT_TRUE(t2.from_string("LNR\n"));  // валидно: пустое дерево
+    ASSERT_TRUE(t2.from_string("RBT\n"));
     ASSERT_TRUE(t2.empty());
 }
 
-TEST_CASE(FromString_PathDoesNotMatchOrder) {
-    // При LNR: сначала левое (путь "L"), потом корень (путь ""), потом правое (путь "R").
-    // Если первая запись — корень ".", то левое поддерево пустое (nil), корень читается, правое пустое.
-    // Это валидное дерево из одного узла.
-    IntegerTree t;
-    ASSERT_TRUE(t.from_string("LNR\n. 1 1:5 1:0\n"));
-    ASSERT_NOT_NULL(t.find(5));
-}
-
 TEST_CASE(FromString_NonBlackRoot) {
-    // Корень красный — отдельный тест, уже есть, но продублируем для LNR
-    std::string bad = "LNR\n. 0 1:5 1:0\n";
+    std::string bad = "RBT\n. 0 1:5 1:0\n";
     IntegerTree t;
     ASSERT_FALSE(t.from_string(bad));
 }
@@ -830,13 +842,9 @@ TEST_CASE(FindByPath_WithParent) {
     IntegerTree t;
     t.insert(5, 50);
     t.insert(3, 30);
-    // Теперь 3 — левый ребёнок 5, parent у 3 = 5
-    
-    auto* node = t.find_by_path(3, "U");  // parent 3 → 5
+    auto* node = t.find_by_path(3, "U");
     ASSERT_NOT_NULL(node);
     ASSERT_EQ(node->key, 5);
-    
-    // U от корня → parent у 5 это nil → nullptr
     auto* node2 = t.find_by_path(5, "U");
     ASSERT_NULL(node2);
 }
@@ -844,7 +852,6 @@ TEST_CASE(FindByPath_WithParent) {
 TEST_CASE(FindByPath_ParentFromRoot) {
     IntegerTree t;
     t.insert(5, 50);
-    // U от корня — parent у корня это nil, follow_path вернёт nullptr
     auto* node = t.find_by_path(5, "U");
     ASSERT_NULL(node);
 }
@@ -852,7 +859,6 @@ TEST_CASE(FindByPath_ParentFromRoot) {
 TEST_CASE(FindByPath_InvalidCharWithoutAllowParent) {
     IntegerTree t;
     t.insert(5, 50); t.insert(3, 30);
-    // Первая перегрузка (allow_parent = false): 'U' должен вернуть nullptr
     auto* node = t.find_by_path("LU");
     ASSERT_NULL(node);
 }
@@ -875,14 +881,12 @@ TEST_CASE(FindByPath_EmptyPath) {
 // ====================== КОНСТРУКТОР С КОМПАРАТОРОМ ======================
 
 TEST_CASE(Ctor_WithComparator) {
-    // Обратный компаратор для int
     auto rev = [](const int& a, const int& b){ return a > b; };
     RedBlackTree<int, int, decltype(rev)> t(rev);
     t.insert(1, 10); t.insert(5, 50); t.insert(3, 30);
-    // LNR с обратным компаратором даст: 5, 3, 1
     std::vector<int> keys;
-    t.traverse(RedBlackTree<int,int,decltype(rev)>::TraversalOrder::LNR,
-        [&](const int& k, const int&){ keys.push_back(k); });
+    CollectKeys collector{keys};
+    t.traverse(traversal::LNR{}, collector);
     ASSERT_EQ(keys.size(), (std::size_t)3);
     ASSERT_EQ(keys[0], 5);
     ASSERT_EQ(keys[1], 3);
@@ -894,7 +898,7 @@ TEST_CASE(Ctor_WithComparator) {
 TEST_CASE(Getters_RootNilCompare) {
     IntegerTree t;
     ASSERT_TRUE(t.empty());
-    ASSERT_TRUE(t.get_root() == t.get_nil());  // root == nil
+    ASSERT_TRUE(t.get_root() == t.get_nil());
     ASSERT_NOT_NULL(t.get_nil());
     const auto& cmp = t.get_compare();
     (void)cmp;
@@ -902,7 +906,7 @@ TEST_CASE(Getters_RootNilCompare) {
     t.insert(1, 10);
     ASSERT_FALSE(t.empty());
     ASSERT_NOT_NULL(t.get_root());
-    ASSERT_FALSE(t.get_root() == t.get_nil());  // root != nil
+    ASSERT_FALSE(t.get_root() == t.get_nil());
 }
 
 // ====================== СЛОЖНЫЙ ERASE ======================
@@ -911,18 +915,15 @@ TEST_CASE(Erase_NodeWithTwoChildren) {
     IntegerTree t;
     t.insert(10, 100); t.insert(5, 50); t.insert(15, 150);
     t.insert(3, 30); t.insert(7, 70); t.insert(12, 120); t.insert(20, 200);
-    // Удаляем 10 — у него два ребёнка. В коде используется maximum(z->left) = 7.
     bool erased = t.erase(10);
     ASSERT_TRUE(erased);
     ASSERT_NULL(t.find(10));
-    // Остальные должны остаться
     ASSERT_NOT_NULL(t.find(5));
     ASSERT_NOT_NULL(t.find(15));
     ASSERT_NOT_NULL(t.find(3));
     ASSERT_NOT_NULL(t.find(7));
     ASSERT_NOT_NULL(t.find(12));
     ASSERT_NOT_NULL(t.find(20));
-    // Инварианты
     assert_roundtrip(t);
 }
 
@@ -950,14 +951,12 @@ TEST_CASE(Erase_UntilEmpty) {
 // ====================== MERGE ПРИ ПЕРЕСЕЧЕНИИ ======================
 
 TEST_CASE(Merge_OverlappingKeysKeepsThis) {
-    // В коде: сначала merge_subtree(this), потом merge_subtree(other).
-    // insert при совпадении ключа игнорирует новое значение → остаётся значение из this.
     IntegerTree a, b;
     a.insert(1, 100); a.insert(2, 200);
     b.insert(2, 999); b.insert(3, 300);
     auto m = a.merge(b);
     ASSERT_EQ(m.find(1)->value, 100);
-    ASSERT_EQ(m.find(2)->value, 200);  // из a, не из b
+    ASSERT_EQ(m.find(2)->value, 200);
     ASSERT_EQ(m.find(3)->value, 300);
 }
 
@@ -978,9 +977,11 @@ TEST_CASE(ContainsSubtree_EqualTrees) {
 }
 
 TEST_CASE(ContainsSubtree_ValueMismatch) {
-    IntegerTree big, small;
+    IntegerTree big;
     big.insert(1, 10); big.insert(2, 20);
-    small.insert(1, 10); small.insert(2, 999);  // значение другое
+    IntegerTree small(big);
+    small.erase(2);
+    small.insert(2, 999);
     ASSERT_FALSE(big.contains_subtree(small));
 }
 
@@ -997,8 +998,7 @@ TEST_CASE(SelfMoveAssignment) {
     IntegerTree t;
     t.insert(1, 10); t.insert(2, 20);
     IntegerTree& ref = t;
-    t = std::move(ref);  // self-move
-    // В коде есть проверка if (this == &other) return *this;
+    t = std::move(ref);
     ASSERT_NOT_NULL(t.find(1));
     ASSERT_NOT_NULL(t.find(2));
 }
@@ -1006,13 +1006,11 @@ TEST_CASE(SelfMoveAssignment) {
 // ====================== DELETE_FIXUP STRESS ======================
 
 TEST_CASE(DeleteFixup_StressSequential) {
-    // Удаляем по одному в отсортированном порядке — это провоцирует
-    // разные ветки delete_fixup (красный sibling, чёрный sibling с красным ребёнком и т.д.)
     IntegerTree t;
     for (int i = 1; i <= 50; ++i) t.insert(i, i);
     for (int i = 1; i <= 50; ++i) {
         ASSERT_TRUE(t.erase(i));
-        assert_roundtrip(t);  // после каждого удаления проверяем инварианты
+        assert_roundtrip(t);
     }
     ASSERT_TRUE(t.empty());
 }
@@ -1020,7 +1018,6 @@ TEST_CASE(DeleteFixup_StressSequential) {
 TEST_CASE(DeleteFixup_RandomPattern) {
     IntegerTree t;
     for (int i = 1; i <= 100; ++i) t.insert(i, i);
-    // Удаляем в псевдослучайном порядке
     for (int i = 50; i >= 1; --i) {
         int k = (i * 37) % 100 + 1;
         t.erase(k);
@@ -1040,6 +1037,28 @@ TEST_CASE(CharTree_RoundTrip) {
     ASSERT_TRUE(t2.from_string(s));
     ASSERT_EQ(t2.find('a')->value, 'A');
     ASSERT_EQ(t2.find('z')->value, 'Z');
+}
+
+// ====================== ДОПОЛНИТЕЛЬНЫЕ ТЕСТЫ ДЛЯ СТРАТЕГИЙ ======================
+
+TEST_CASE(IntegerTree_Traverse_AllStrategies) {
+    IntegerTree t;
+    t.insert(2, 20); t.insert(1, 10); t.insert(3, 30);
+    
+    std::vector<int> lnr_values;
+    CollectValues lnr_collector{lnr_values};
+    t.traverse(traversal::LNR{}, lnr_collector);
+    ASSERT_EQ(lnr_values.size(), (std::size_t)3);
+    
+    std::vector<int> nlr_values;
+    CollectValues nlr_collector{nlr_values};
+    t.traverse(traversal::NLR{}, nlr_collector);
+    ASSERT_EQ(nlr_values.size(), (std::size_t)3);
+    
+    std::vector<int> lrn_values;
+    CollectValues lrn_collector{lrn_values};
+    t.traverse(traversal::LRN{}, lrn_collector);
+    ASSERT_EQ(lrn_values.size(), (std::size_t)3);
 }
 
 // ====================== АГРЕГАТОР ======================
@@ -1129,7 +1148,7 @@ void run_rb_tree_tests() {
     RUN_TEST(TeacherTree_RoundTrip);
 
     // Сериализация
-    RUN_TEST(IntegerTree_RoundTrip_AllOrders);
+    RUN_TEST(IntegerTree_RoundTrip);
     RUN_TEST(RealTree_RoundTrip_Precision);
     RUN_TEST(FromString_InvalidHeader);
     RUN_TEST(FromString_InvalidStructure);
@@ -1138,12 +1157,15 @@ void run_rb_tree_tests() {
     // Функциональные операции
     RUN_TEST(IntegerTree_Map);
     RUN_TEST(IntegerTree_Where);
-    RUN_TEST(IntegerTree_Reduce);
+    RUN_TEST(IntegerTree_Reduce_LNR);
+    RUN_TEST(IntegerTree_Reduce_NLR);
+    RUN_TEST(IntegerTree_Reduce_Product);
     RUN_TEST(IntegerTree_Merge);
     RUN_TEST(IntegerTree_ExtractSubtree);
     RUN_TEST(IntegerTree_ContainsSubtree);
     RUN_TEST(IntegerTree_FindByPath);
-    RUN_TEST(IntegerTree_Traverse_AllOrders);
+    RUN_TEST(IntegerTree_Traverse_LNR);
+    RUN_TEST(IntegerTree_Traverse_NLR);
 
     // Инварианты
     RUN_TEST(IntegerTree_BalanceAfterManyInserts);
@@ -1173,11 +1195,9 @@ void run_rb_tree_tests() {
     RUN_TEST(FromString_LengthMismatch_TooShort);
     RUN_TEST(FromString_InvalidPathCharacter);
     RUN_TEST(FromString_TruncatedRecord);
-    RUN_TEST(FromString_DuplicateKeys);
-    RUN_TEST(FromString_UnknownTraversalOrder);
+    RUN_TEST(FromString_UnknownHeader);
     RUN_TEST(FromString_EmptyString);
     RUN_TEST(FromString_OnlyHeader);
-    RUN_TEST(FromString_PathDoesNotMatchOrder);
     RUN_TEST(FromString_NonBlackRoot);
 
     // find_by_path с родителем
@@ -1208,6 +1228,7 @@ void run_rb_tree_tests() {
     RUN_TEST(DeleteFixup_StressSequential);
     RUN_TEST(DeleteFixup_RandomPattern);
     RUN_TEST(CharTree_RoundTrip);
+    RUN_TEST(IntegerTree_Traverse_AllStrategies);
 
     std::cout << "\n========================================\n";
     std::cout << "Results: \033[32m" << rb_tests_passed << " passed\033[0m, \033[31m" << rb_tests_failed << " failed\033[0m\n";

@@ -1,4 +1,5 @@
 #include "dataTypes.h"
+#include "traversals.h"
 
 #include <cmath>
 #include <functional>
@@ -202,17 +203,27 @@ bool choose_action(const char* first, const char* second, int& choice) {
     return read_choice("Выберите действие: ", 0, 2, choice);
 }
 
-template <typename Tree>
-bool choose_order(typename Tree::TraversalOrder& order) {
+bool choose_order(int& choice) {
     std::cout << "1. NLR — корень, левое, правое\n"
                  "2. NRL — корень, правое, левое\n"
                  "3. LNR — левое, корень, правое\n"
                  "4. RNL — правое, корень, левое\n"
                  "5. LRN — левое, правое, корень\n"
                  "6. RLN — правое, левое, корень\n";
-    int choice;
-    if (!read_choice("Обход: ", 1, 6, choice)) return false;
-    order = static_cast<typename Tree::TraversalOrder>(choice - 1);
+    return read_choice("Обход: ", 1, 6, choice);
+}
+
+template <typename Action>
+bool apply_order(int choice, const Action& action) {
+    switch (choice) {
+        case 1: action(traversal::NLR{}); break;
+        case 2: action(traversal::NRL{}); break;
+        case 3: action(traversal::LNR{}); break;
+        case 4: action(traversal::RNL{}); break;
+        case 5: action(traversal::LRN{}); break;
+        case 6: action(traversal::RLN{}); break;
+        default: return false;
+    }
     return true;
 }
 
@@ -483,78 +494,71 @@ const char* reduce_title(const FunctionValue&) { return "Сумма резуль
 const char* reduce_title(const Student&) { return "Сумма курсов"; }
 const char* reduce_title(const Teacher&) { return "Количество преподавателей заданной кафедры"; }
 
-template <typename Key, typename Compare>
-bool reduce_special(const RedBlackTree<Key, int, Compare>& tree,
-                    typename RedBlackTree<Key, int, Compare>::TraversalOrder order) {
+template <typename Key, typename Compare, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, int, Compare>& tree, Strategy strategy) {
     long long initial;
     if (!read_value("Начальное значение (long long): ", initial)) return false;
-    auto result = tree.reduce(initial, sum_integer, order);
+    auto result = tree.reduce(strategy, initial, sum_integer);
     std::cout << "Результат: " << result << '\n';
     return true;
 }
 
-template <typename Key, typename Compare>
-bool reduce_special(const RedBlackTree<Key, double, Compare>& tree,
-                    typename RedBlackTree<Key, double, Compare>::TraversalOrder order) {
+template <typename Key, typename Compare, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, double, Compare>& tree, Strategy strategy) {
     double initial;
     if (!read_value("Начальное значение: ", initial)) return false;
-    auto result = tree.reduce(initial, sum_real, order);
+    auto result = tree.reduce(strategy, initial, sum_real);
     std::cout << "Результат: " << result << '\n';
     return true;
 }
 
-template <typename Key, typename Compare>
-bool reduce_special(const RedBlackTree<Key, Complex, Compare>& tree,
-                    typename RedBlackTree<Key, Complex, Compare>::TraversalOrder order) {
+template <typename Key, typename Compare, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, Complex, Compare>& tree, Strategy strategy) {
     Complex initial;
     if (!read_value("Начальное значение (re,im): ", initial)) return false;
-    auto result = tree.reduce(initial, sum_complex, order);
+    auto result = tree.reduce(strategy, initial, sum_complex);
     std::cout << "Результат: " << result << '\n';
     return true;
 }
 
-template <typename Key, typename Compare>
-bool reduce_special(const RedBlackTree<Key, std::string, Compare>& tree,
-                    typename RedBlackTree<Key, std::string, Compare>::TraversalOrder order) {
+template <typename Key, typename Compare, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, std::string, Compare>& tree, Strategy strategy) {
     std::string initial;
     if (!read_line("Начальная строка (можно пустую): ", initial)) return false;
-    std::string result = tree.reduce(initial, join_strings, order);
+    std::string result = tree.reduce(strategy, initial, join_strings);
     std::cout << "Результат: ";
     print_text(result);
     std::cout << '\n';
     return true;
 }
 
-template <typename Key, typename Compare>
-bool reduce_special(const RedBlackTree<Key, FunctionValue, Compare>& tree,
-                    typename RedBlackTree<Key, FunctionValue, Compare>::TraversalOrder order) {
+template <typename Key, typename Compare, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, FunctionValue, Compare>& tree, Strategy strategy) {
     int argument;
     long long initial;
     if (!read_value("Аргумент функций: ", argument)) return false;
     if (!read_value("Начальное значение (long long): ", initial)) return false;
-    auto result = tree.reduce(initial, FunctionSum{argument}, order);
+    auto result = tree.reduce(strategy, initial, FunctionSum{argument});
     std::cout << "Результат: " << result << '\n';
     return true;
 }
 
-template <typename Key, typename Compare>
-bool reduce_special(const RedBlackTree<Key, Student, Compare>& tree,
-                    typename RedBlackTree<Key, Student, Compare>::TraversalOrder order) {
+template <typename Key, typename Compare, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, Student, Compare>& tree, Strategy strategy) {
     long long initial;
     if (!read_value("Начальное значение (long long): ", initial)) return false;
-    auto result = tree.reduce(initial, sum_courses, order);
+    auto result = tree.reduce(strategy, initial, sum_courses);
     std::cout << "Результат: " << result << '\n';
     return true;
 }
 
-template <typename Key, typename Compare>
-bool reduce_special(const RedBlackTree<Key, Teacher, Compare>& tree,
-                    typename RedBlackTree<Key, Teacher, Compare>::TraversalOrder order) {
+template <typename Key, typename Compare, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, Teacher, Compare>& tree, Strategy strategy) {
     std::string department;
     long long initial;
     if (!read_line("Кафедра: ", department)) return false;
     if (!read_value("Начальное значение (long long): ", initial)) return false;
-    auto result = tree.reduce(initial, CountDepartment{department}, order);
+    auto result = tree.reduce(strategy, initial, CountDepartment{department});
     std::cout << "Результат: " << result << '\n';
     return true;
 }
@@ -607,6 +611,44 @@ bool valid_tree(const RedBlackTree<Key, Value, Compare>& tree) {
     return check_subtree(tree, tree.get_root(), tree.get_nil(), lower, upper) > 0;
 }
 
+template <typename Tree, typename Value>
+struct ReduceRunner {
+    const Tree& tree;
+    int choice;
+    bool& done;
+
+    template <typename Strategy>
+    void operator()(Strategy strategy) const {
+        if (choice == 1) {
+            done = reduce_special(tree, strategy);
+            return;
+        }
+        long long initial;
+        if (!read_value("Начальное значение (long long): ", initial)) {
+            done = false;
+            return;
+        }
+        long long result = tree.reduce(strategy, initial, count_elements<Value>);
+        std::cout << "Результат: " << result << '\n';
+        done = true;
+    }
+};
+
+template <typename Key, typename Value, typename Compare>
+bool reduce_tree(const RedBlackTree<Key, Value, Compare>& tree) {
+    int choice;
+    if (!choose_action(reduce_title(tree.get_nil()->value), "Количество элементов", choice)) return false;
+    if (choice == 0) return true;
+
+    int order;
+    if (!choose_order(order)) return false;
+
+    bool done = false;
+    ReduceRunner<RedBlackTree<Key, Value, Compare>, Value> runner{tree, choice, done};
+    if (!apply_order(order, runner)) return false;
+    return done;
+}
+
 template <typename Tree>
 std::size_t count_nodes(const Tree& tree, const typename Tree::Node* node) {
     if (node == tree.get_nil()) return 0;
@@ -638,12 +680,22 @@ void print_structure(const Tree& tree, const typename Tree::Node* node,
     print_structure(tree, node->right, depth + 1, 'R', shown, truncated);
 }
 
-template <typename Key, typename Value>
 struct PrintEntries {
     std::size_t& count;
+    template <typename Key, typename Value>
     void operator()(const Key& key, const Value& value) const {
         if (count < 50) print_entry(key, value);
         ++count;
+    }
+};
+
+template <typename Tree>
+struct ShowEntries {
+    const Tree& tree;
+    std::size_t& shown;
+    template <typename Strategy>
+    void operator()(Strategy strategy) const {
+        tree.traverse(strategy, PrintEntries{shown});
     }
 };
 
@@ -659,10 +711,10 @@ bool show_tree(const RedBlackTree<Key, Value, Compare>& tree) {
 
     std::size_t shown = 0;
     if (choice == 1) {
-        using Tree = RedBlackTree<Key, Value, Compare>;
-        typename Tree::TraversalOrder order;
-        if (!choose_order<Tree>(order)) return false;
-        tree.traverse(order, PrintEntries<Key, Value>{shown});
+        int order;
+        if (!choose_order(order)) return false;
+        ShowEntries<RedBlackTree<Key, Value, Compare>> action{tree, shown};
+        if (!apply_order(order, action)) return false;
         if (shown > 50) std::cout << "Показаны первые 50 из " << shown << " элементов.\n";
     } else {
         bool truncated = false;
@@ -729,23 +781,6 @@ bool filter_tree(const RedBlackTree<Key, Value, Compare>& tree,
 }
 
 template <typename Key, typename Value, typename Compare>
-bool reduce_tree(const RedBlackTree<Key, Value, Compare>& tree) {
-    int choice;
-    if (!choose_action(reduce_title(tree.get_nil()->value), "Количество элементов", choice)) return false;
-    if (choice == 0) return true;
-    using Tree = RedBlackTree<Key, Value, Compare>;
-    typename Tree::TraversalOrder order;
-    if (!choose_order<Tree>(order)) return false;
-    if (choice == 1) return reduce_special(tree, order);
-
-    long long initial;
-    if (!read_value("Начальное значение (long long): ", initial)) return false;
-    long long result = tree.reduce(initial, count_elements<Value>, order);
-    std::cout << "Результат: " << result << '\n';
-    return true;
-}
-
-template <typename Key, typename Value, typename Compare>
 bool extract_tree(const RedBlackTree<Key, Value, Compare>& tree,
                   RedBlackTree<Key, Value, Compare>& result) {
     Key key;
@@ -784,9 +819,7 @@ bool find_path(const RedBlackTree<Key, Value, Compare>& tree) {
 
 template <typename Tree>
 bool save_tree(const Tree& tree) {
-    typename Tree::TraversalOrder order;
-    if (!choose_order<Tree>(order)) return false;
-    std::string text = tree.to_string(order);
+    std::string text = tree.to_string();
     std::cout << "Сохранённая строка:\n" << text;
     std::size_t lines = 0;
     for (char symbol : text) if (symbol == '\n') ++lines;
@@ -799,7 +832,7 @@ bool load_tree(Tree& tree) {
     int lines;
     if (!read_choice("Количество вводимых строк (включая заголовок): ",
                      1, std::numeric_limits<int>::max(), lines)) return false;
-    std::cout << "Введите сохранённую строку. Первая строка — имя обхода.\n";
+    std::cout << "Введите сохранённую строку. Первая строка — заголовок RBT.\n";
     std::string text, line;
     for (int i = 0; i < lines; ++i) {
         if (!read_line("", line)) return false;

@@ -7,17 +7,11 @@
 #include <sstream>
 #include <limits>
 
+#include "traversals.h"
+
 template <typename Key, typename Value, typename Compare = std::less<Key>>
 class RedBlackTree {
 public:
-    enum class TraversalOrder {
-        NLR, // корень, левое, правое
-        NRL, // корень, правое, левое
-        LNR, // левое, корень, правое
-        RNL, // правое, корень, левое
-        LRN, // левое, правое, корень
-        RLN  // правое, левое, корень
-    };
 
     struct Node {
         Key key;
@@ -179,11 +173,11 @@ public:
         return root == nil;
     }
 
-
-    void traverse(TraversalOrder order, const std::function<void(const Key&, const Value&)>& action) const {
-        traverse_subtree(root, order, action);
+    template <typename Strategy, typename Action>
+    void traverse(Strategy strategy, const Action& action) const {
+        traverse_subtree(root, strategy, action);
     }
-
+    
     RedBlackTree map(const std::function<Value(const Value&)>& action) const {
         RedBlackTree result(comp);
         map_subtree(root, result, action);
@@ -196,11 +190,10 @@ public:
         return result;
     }
 
-    template <typename Result, typename Action>
-    Result reduce(const Result& initial, const Action& action,
-                  TraversalOrder order = TraversalOrder::LNR) const {
+    template <typename Strategy, typename Result, typename Action>
+    Result reduce(Strategy strategy, const Result& initial, const Action& action) const {
         Result result = initial;
-        reduce_subtree(root, order, result, action);
+        reduce_subtree(root, strategy, result, action);
         return result;
     }
 
@@ -240,35 +233,15 @@ public:
         return follow_path(find_node(start_key), path, true);
     }
 
-    std::string to_string(TraversalOrder order = TraversalOrder::LNR) const {
+    std::string to_string() const {
         std::ostringstream stream;
-
-        switch (order) {
-            case TraversalOrder::NLR: stream << "NLR\n"; break;
-            case TraversalOrder::NRL: stream << "NRL\n"; break;
-            case TraversalOrder::LNR: stream << "LNR\n"; break;
-            case TraversalOrder::RNL: stream << "RNL\n"; break;
-            case TraversalOrder::LRN: stream << "LRN\n"; break;
-            case TraversalOrder::RLN: stream << "RLN\n"; break;
-            default: return "";
-        }
-
-        to_string_subtree(root, "", order, stream);
+        stream << "RBT\n";
+        to_string_subtree(root, "", stream);
         return stream.str();
     }
 
     bool from_string(const std::string& text) {
-        if (text.size() < 4 || text[3] != '\n') return false;
-
-        TraversalOrder order;
-        std::string name = text.substr(0, 3);
-        if (name == "NLR") order = TraversalOrder::NLR;
-        else if (name == "NRL") order = TraversalOrder::NRL;
-        else if (name == "LNR") order = TraversalOrder::LNR;
-        else if (name == "RNL") order = TraversalOrder::RNL;
-        else if (name == "LRN") order = TraversalOrder::LRN;
-        else if (name == "RLN") order = TraversalOrder::RLN;
-        else return false;
+        if (text.compare(0, 4, "RBT\n") != 0) return false;
 
         RedBlackTree result(comp);
         std::size_t position = 4;
@@ -277,7 +250,7 @@ public:
         bool valid = true;
 
         if (has_record && !result.read_string_record(text, position, record)) return false;
-        result.root = result.read_string_subtree(text, position, record, has_record, valid, "", order);
+        result.root = result.read_string_subtree(text, position, record, has_record, valid, "");
 
         if (!valid || has_record) return false;
         if (result.root != result.nil && !result.root->color) return false;
@@ -301,42 +274,49 @@ private:
     Node* nil;
     Compare comp;
 
-    void traverse_subtree(const Node* node, TraversalOrder order,
-                          const std::function<void(const Key&, const Value&)>& action) const {
+    template <typename Action>
+    struct VisitAction {
+        const Node* node;
+        const Action& action;
+
+        void operator()() const {
+            action(node->key, node->value);
+        }
+    };
+
+    template <typename Strategy, typename Action>
+    struct TraverseLeftAction {
+        const RedBlackTree& tree;
+        const Node* node;
+        Strategy strategy;
+        const Action& action;
+
+        void operator()() const {
+            tree.traverse_subtree(node->left, strategy, action);
+        }
+    };
+
+    template <typename Strategy, typename Action>
+    struct TraverseRightAction {
+        const RedBlackTree& tree;
+        const Node* node;
+        Strategy strategy;
+        const Action& action;
+
+        void operator()() const {
+            tree.traverse_subtree(node->right, strategy, action);
+        }
+    };
+
+    template <typename Strategy, typename Action>
+    void traverse_subtree(const Node* node, Strategy strategy, const Action& action) const {
         if (node == nil) return;
 
-        switch (order) {
-            case TraversalOrder::NLR:
-                action(node->key, node->value);
-                traverse_subtree(node->left, order, action);
-                traverse_subtree(node->right, order, action);
-                break;
-            case TraversalOrder::NRL:
-                action(node->key, node->value);
-                traverse_subtree(node->right, order, action);
-                traverse_subtree(node->left, order, action);
-                break;
-            case TraversalOrder::LNR:
-                traverse_subtree(node->left, order, action);
-                action(node->key, node->value);
-                traverse_subtree(node->right, order, action);
-                break;
-            case TraversalOrder::RNL:
-                traverse_subtree(node->right, order, action);
-                action(node->key, node->value);
-                traverse_subtree(node->left, order, action);
-                break;
-            case TraversalOrder::LRN:
-                traverse_subtree(node->left, order, action);
-                traverse_subtree(node->right, order, action);
-                action(node->key, node->value);
-                break;
-            case TraversalOrder::RLN:
-                traverse_subtree(node->right, order, action);
-                traverse_subtree(node->left, order, action);
-                action(node->key, node->value);
-                break;
-        }
+        VisitAction<Action> visit{node, action};
+        TraverseLeftAction<Strategy, Action> left{*this, node, strategy, action};
+        TraverseRightAction<Strategy, Action> right{*this, node, strategy, action};
+
+        strategy(visit, left, right);
     }
 
     void map_subtree(const Node* node, RedBlackTree& result,
@@ -363,42 +343,52 @@ private:
     }
 
     template <typename Result, typename Action>
-    void reduce_subtree(const Node* node, TraversalOrder order,
-                        Result& result, const Action& action) const {
+    struct ReduceVisitAction {
+        const Node* node;
+        Result& result;
+        const Action& action;
+
+        void operator()() const {
+            result = action(result, node->value);
+        }
+    };
+
+    template <typename Strategy, typename Result, typename Action>
+    struct ReduceTraverseLeftAction {
+        const RedBlackTree& tree;
+        const Node* node;
+        Strategy strategy;
+        Result& result;
+        const Action& action;
+
+        void operator()() const {
+            tree.reduce_subtree(node->left, strategy, result, action);
+        }
+    };
+
+    template <typename Strategy, typename Result, typename Action>
+    struct ReduceTraverseRightAction {
+        const RedBlackTree& tree;
+        const Node* node;
+        Strategy strategy;
+        Result& result;
+        const Action& action;
+
+        void operator()() const {
+            tree.reduce_subtree(node->right, strategy, result, action);
+        }
+    };
+
+    template <typename Strategy, typename Result, typename Action>
+    void reduce_subtree(const Node* node, Strategy strategy, 
+                    Result& result, const Action& action) const {
         if (node == nil) return;
 
-        switch (order) {
-            case TraversalOrder::NLR:
-                result = action(result, node->value);
-                reduce_subtree(node->left, order, result, action);
-                reduce_subtree(node->right, order, result, action);
-                break;
-            case TraversalOrder::NRL:
-                result = action(result, node->value);
-                reduce_subtree(node->right, order, result, action);
-                reduce_subtree(node->left, order, result, action);
-                break;
-            case TraversalOrder::LNR:
-                reduce_subtree(node->left, order, result, action);
-                result = action(result, node->value);
-                reduce_subtree(node->right, order, result, action);
-                break;
-            case TraversalOrder::RNL:
-                reduce_subtree(node->right, order, result, action);
-                result = action(result, node->value);
-                reduce_subtree(node->left, order, result, action);
-                break;
-            case TraversalOrder::LRN:
-                reduce_subtree(node->left, order, result, action);
-                reduce_subtree(node->right, order, result, action);
-                result = action(result, node->value);
-                break;
-            case TraversalOrder::RLN:
-                reduce_subtree(node->right, order, result, action);
-                reduce_subtree(node->left, order, result, action);
-                result = action(result, node->value);
-                break;
-        }
+        ReduceVisitAction<Result, Action> visit{node, result, action};
+        ReduceTraverseLeftAction<Strategy, Result, Action> left{*this, node, strategy, result, action};
+        ReduceTraverseRightAction<Strategy, Result, Action> right{*this, node, strategy, result, action};
+
+        strategy(visit, left, right);
     }
 
     void merge_subtree(const Node* node, RedBlackTree& result) const {
@@ -456,41 +446,11 @@ private:
     }
 
     void to_string_subtree(const Node* node, const std::string& path,
-                           TraversalOrder order, std::ostringstream& stream) const {
+                           std::ostringstream& stream) const {
         if (node == nil) return;
-
-        switch (order) {
-            case TraversalOrder::NLR:
-                write_node(node, path, stream);
-                to_string_subtree(node->left, path + "L", order, stream);
-                to_string_subtree(node->right, path + "R", order, stream);
-                break;
-            case TraversalOrder::NRL:
-                write_node(node, path, stream);
-                to_string_subtree(node->right, path + "R", order, stream);
-                to_string_subtree(node->left, path + "L", order, stream);
-                break;
-            case TraversalOrder::LNR:
-                to_string_subtree(node->left, path + "L", order, stream);
-                write_node(node, path, stream);
-                to_string_subtree(node->right, path + "R", order, stream);
-                break;
-            case TraversalOrder::RNL:
-                to_string_subtree(node->right, path + "R", order, stream);
-                write_node(node, path, stream);
-                to_string_subtree(node->left, path + "L", order, stream);
-                break;
-            case TraversalOrder::LRN:
-                to_string_subtree(node->left, path + "L", order, stream);
-                to_string_subtree(node->right, path + "R", order, stream);
-                write_node(node, path, stream);
-                break;
-            case TraversalOrder::RLN:
-                to_string_subtree(node->right, path + "R", order, stream);
-                to_string_subtree(node->left, path + "L", order, stream);
-                write_node(node, path, stream);
-                break;
-        }
+        write_node(node, path, stream);
+        to_string_subtree(node->left, path + "L", stream);
+        to_string_subtree(node->right, path + "R", stream);
     }
 
     struct StringRecord {
@@ -604,8 +564,7 @@ private:
     }
 
     Node* read_string_subtree(const std::string& text, std::size_t& position, StringRecord& record,
-                              bool& has_record, bool& valid, const std::string& path,
-                              TraversalOrder order) {
+                              bool& has_record, bool& valid, const std::string& path) {
         if (!valid || !has_record || record.path.compare(0, path.size(), path) != 0) return nil;
 
         Node* node = nil;
@@ -613,38 +572,9 @@ private:
         Node* right = nil;
 
         try {
-            switch (order) {
-                case TraversalOrder::NLR:
-                    node = read_string_node(text, position, record, has_record, valid, path);
-                    left = read_string_subtree(text, position, record, has_record, valid, path + "L", order);
-                    right = read_string_subtree(text, position, record, has_record, valid, path + "R", order);
-                    break;
-                case TraversalOrder::NRL:
-                    node = read_string_node(text, position, record, has_record, valid, path);
-                    right = read_string_subtree(text, position, record, has_record, valid, path + "R", order);
-                    left = read_string_subtree(text, position, record, has_record, valid, path + "L", order);
-                    break;
-                case TraversalOrder::LNR:
-                    left = read_string_subtree(text, position, record, has_record, valid, path + "L", order);
-                    node = read_string_node(text, position, record, has_record, valid, path);
-                    right = read_string_subtree(text, position, record, has_record, valid, path + "R", order);
-                    break;
-                case TraversalOrder::RNL:
-                    right = read_string_subtree(text, position, record, has_record, valid, path + "R", order);
-                    node = read_string_node(text, position, record, has_record, valid, path);
-                    left = read_string_subtree(text, position, record, has_record, valid, path + "L", order);
-                    break;
-                case TraversalOrder::LRN:
-                    left = read_string_subtree(text, position, record, has_record, valid, path + "L", order);
-                    right = read_string_subtree(text, position, record, has_record, valid, path + "R", order);
-                    node = read_string_node(text, position, record, has_record, valid, path);
-                    break;
-                case TraversalOrder::RLN:
-                    right = read_string_subtree(text, position, record, has_record, valid, path + "R", order);
-                    left = read_string_subtree(text, position, record, has_record, valid, path + "L", order);
-                    node = read_string_node(text, position, record, has_record, valid, path);
-                    break;
-            }
+            node = read_string_node(text, position, record, has_record, valid, path);
+            left = read_string_subtree(text, position, record, has_record, valid, path + "L");
+            right = read_string_subtree(text, position, record, has_record, valid, path + "R");
 
             if (!valid) {
                 destroy_subtree(left);
