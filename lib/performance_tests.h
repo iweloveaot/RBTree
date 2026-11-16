@@ -10,13 +10,13 @@
 #include <map>
 #include "dataTypes.h"
 
-// ====================== НАСТРОЙКИ РАЗМЕРОВ ======================
+
 const std::size_t SMALL_SIZE = 10000;
 const std::size_t MEDIUM_SIZE = 100000;
 const std::size_t LARGE_SIZE = 1000000;
 const std::size_t VERY_LARGE_SIZE = 10000000;
 
-// ====================== УТИЛИТЫ ИЗМЕРЕНИЯ ======================
+
 struct BenchmarkResult {
     std::string operation;
     std::size_t size;
@@ -37,7 +37,7 @@ std::vector<BenchmarkResult> benchmark_results;
     benchmark_results.push_back({op_name, sz, _bench_elapsed, _bench_ops}); \
     }
 
-// ====================== ГЕНЕРАЦИЯ ДАННЫХ ======================
+
 std::vector<int> generate_random_ints(std::size_t count, int seed = 42) {
     std::vector<int> data;
     data.reserve(count);
@@ -83,7 +83,7 @@ std::vector<std::string> generate_random_strings(std::size_t count, std::size_t 
     return data;
 }
 
-// ====================== ФУНКТОРЫ ДЛЯ ТЕСТОВ ======================
+
 struct CountAction {
     mutable std::size_t count = 0;
     void operator()(const int&, const int&) const { ++count; }
@@ -93,7 +93,7 @@ struct PerfSumAction {
     long long operator()(long long acc, const int& v) const { return acc + v; }
 };
 
-// ====================== ТЕСТЫ INSERT ======================
+// тесты INSERT 
 void benchmark_insert_random(std::size_t size) {
     std::cout << "  Insert (random order, " << size << " elements)... ";
     std::vector<int> data = generate_random_ints(size);
@@ -136,7 +136,7 @@ void benchmark_insert_reverse(std::size_t size) {
     std::cout << benchmark_results.back().time_ms << " ms\n";
 }
 
-// ====================== ТЕСТЫ FIND ======================
+// тесты FIND 
 void benchmark_find_success(std::size_t size) {
     std::cout << "  Find (successful, " << size << " elements)... ";
     IntegerTree tree;
@@ -169,7 +169,7 @@ void benchmark_find_failure(std::size_t size) {
     std::cout << benchmark_results.back().time_ms << " ms\n";
 }
 
-// ====================== ТЕСТЫ ERASE ======================
+// тесты ERASE 
 void benchmark_erase_all(std::size_t size) {
     std::cout << "  Erase (all elements, " << size << " elements)... ";
     IntegerTree tree;
@@ -186,7 +186,7 @@ void benchmark_erase_all(std::size_t size) {
     std::cout << benchmark_results.back().time_ms << " ms\n";
 }
 
-// ====================== ТЕСТЫ TRAVERSE ======================
+// тесты TRAVERSE 
 void benchmark_traverse_lnr(std::size_t size) {
     std::cout << "  Traverse (LNR, " << size << " elements)... ";
     IntegerTree tree;
@@ -217,7 +217,7 @@ void benchmark_traverse_nlr(std::size_t size) {
     std::cout << benchmark_results.back().time_ms << " ms\n";
 }
 
-// ====================== ТЕСТЫ REDUCE ======================
+// тесты REDUCE 
 void benchmark_reduce(std::size_t size) {
     std::cout << "  Reduce (sum, " << size << " elements)... ";
     IntegerTree tree;
@@ -233,7 +233,7 @@ void benchmark_reduce(std::size_t size) {
     std::cout << benchmark_results.back().time_ms << " ms (result: " << result << ")\n";
 }
 
-// ====================== ТЕСТЫ СЕРИАЛИЗАЦИИ ======================
+// тесты СЕРИАЛИЗАЦИИ 
 void benchmark_to_string(std::size_t size) {
     std::cout << "  to_string (" << size << " elements)... ";
     IntegerTree tree;
@@ -266,7 +266,7 @@ void benchmark_from_string(std::size_t size) {
     std::cout << benchmark_results.back().time_ms << " ms (success: " << (ok ? "yes" : "no") << ")\n";
 }
 
-// ====================== ТЕСТЫ КОПИРОВАНИЯ ======================
+// тесты КОПИРОВАНИЯ 
 void benchmark_copy(std::size_t size) {
     std::cout << "  Copy constructor (" << size << " elements)... ";
     IntegerTree tree;
@@ -295,7 +295,7 @@ void benchmark_move(std::size_t size) {
     std::cout << benchmark_results.back().time_ms << " ms\n";
 }
 
-// ====================== ТЕСТЫ СРАВНЕНИЯ С std::map ======================
+// тесты сравнения с std::map 
 void benchmark_compare_with_std_map(std::size_t size) {
     std::cout << "  Comparison with std::map (" << size << " elements)...\n";
     std::vector<int> data = generate_random_ints(size);
@@ -339,7 +339,7 @@ void benchmark_compare_with_std_map(std::size_t size) {
               << (rb_find_time / std_find_time) << "x)\n";
 }
 
-// ====================== ТЕСТЫ ДЛЯ РАЗНЫХ ТИПОВ ======================
+// тесты ДЛЯ РАЗНЫХ ТИПОВ 
 void benchmark_string_tree(std::size_t size) {
     std::cout << "  StringTree operations (" << size << " elements)...\n";
     std::vector<std::string> keys = generate_random_strings(size, 10);
@@ -387,7 +387,7 @@ void benchmark_complex_tree(std::size_t size) {
     std::cout << "    Find: " << benchmark_results.back().time_ms << " ms\n";
 }
 
-// ====================== АГРЕГАТОР ======================
+
 void run_performance_tests() {
     std::cout << "\n========================================\n";
     std::cout << "   Performance Tests (Load Testing)\n";
