@@ -6,10 +6,11 @@
 #include <string>
 #include <sstream>
 #include <limits>
+#include <type_traits>
 
 #include "traversals.h"
 
-template <typename Key, typename Value, typename Compare = std::less<Key>>
+template <typename Key, typename Value>
 class RedBlackTree {
 public:
 
@@ -26,7 +27,9 @@ public:
     };
 
 
-    RedBlackTree() : comp(Compare()) {
+    RedBlackTree() : comp(std::less<Key>()) {
+        static_assert(std::is_invocable_r_v<bool, std::less<Key>, const Key&, const Key&>, "Key must be comparable with std::less<Key>");
+        validate_comparator();
         nil = new Node(Key(), Value(), nullptr);
         nil->color = true;
         nil->left = nil;
@@ -34,8 +37,19 @@ public:
         nil->parent = nil;
         root = nil;
     }
+    //     nil = new Node(Key(), Value(), nullptr);
+    //     nil->color = true;
+    //     nil->left = nil;
+    //     nil->right = nil;
+    //     nil->parent = nil;
+    //     root = nil;
+    // }
 
+    template <typename Compare>
     explicit RedBlackTree(const Compare& comparator) : comp(comparator) {
+        static_assert(std::is_invocable_r_v<bool, Compare, const Key&, const Key&>,
+                      "Compare must be callable as bool(const Key&, const Key&)");
+        validate_comparator();
         nil = new Node(Key(), Value(), nullptr);
         nil->color = true;
         nil->left = nil;
@@ -52,14 +66,23 @@ public:
 
     RedBlackTree(const RedBlackTree& other) : RedBlackTree(other.comp) {
         root = copy_subtree(other.root, other.nil, nil);
+        
     }
 
     RedBlackTree(RedBlackTree&& other) : RedBlackTree(other.comp) {
-        Node* new_nil = nil;
+        Node* temp_nil = nil;
         root = other.root;
         nil = other.nil;
-        other.root = new_nil;
-        other.nil = new_nil;
+        
+        if (root != other.nil) {
+            fix_nil_links(root, other.nil, nil);
+        }
+        
+        other.root = temp_nil;
+        other.nil = temp_nil;
+        other.nil->left = temp_nil;
+        other.nil->right = temp_nil;
+        other.nil->parent = temp_nil;
     }
 
     RedBlackTree& operator=(const RedBlackTree& other) {
@@ -78,19 +101,19 @@ public:
     }
 
     RedBlackTree& operator=(RedBlackTree&& other) {
-        if (this == &other) return *this;
+    if (this == &other) return *this;
 
-        comp = other.comp;
-        destroy_subtree(root);
+    comp = std::move(other.comp);
+    destroy_subtree(root);
 
-        Node* old_nil = nil;
-        root = other.root;
-        nil = other.nil;
-        other.root = old_nil;
-        other.nil = old_nil;
-        other.nil->parent = other.nil;
-        return *this;
-    }
+    Node* old_nil = nil;
+    root = other.root;
+    nil = other.nil;
+    other.root = old_nil;
+    other.nil = old_nil;
+    other.nil->parent = other.nil;
+    return *this;
+}
 
 
 
@@ -201,7 +224,10 @@ public:
         return merge(other, comp);
     }
 
+    template <typename Compare>
     RedBlackTree merge(const RedBlackTree& other, const Compare& comparator) const {
+        static_assert(std::is_invocable_r_v<bool, Compare, const Key&, const Key&>,
+                      "Compare must be callable as bool(const Key&, const Key&)");
         RedBlackTree result(comparator);
         merge_subtree(root, result);
         other.merge_subtree(other.root, result);
@@ -267,12 +293,46 @@ public:
 
     Node* get_root() const { return root; }     
     Node* get_nil() const { return nil; }      
-    const Compare& get_compare() const { return comp; }      
+    const std::function<bool(const Key&, const Key&)>& get_compare() const { return comp; }   
 
 private:
     Node* root;
     Node* nil;
-    Compare comp;
+    std::function<bool(const Key&, const Key&)> comp;
+
+    void validate_comparator() const {
+        if (!comp) {
+            throw std::invalid_argument("Comparator is empty");
+        }
+        Key probe = Key();
+        if (comp(probe, probe)) {
+            throw std::invalid_argument(
+                "Comparator is not irreflexive: comp(a, a) must be false "
+                "(strict weak ordering required, use < instead of <=)");
+        }
+    }
+
+    // Приватная функция для замены указателей на nil при move-конструкторе
+    void fix_nil_links(Node* node, Node* old_nil, Node* new_nil) {
+        if (node == old_nil) return;
+        
+        if (node->left == old_nil) {
+            node->left = new_nil;
+        } else {
+            fix_nil_links(node->left, old_nil, new_nil);
+        }
+        
+        if (node->right == old_nil) {
+            node->right = new_nil;
+        } else {
+            fix_nil_links(node->right, old_nil, new_nil);
+        }
+        
+        if (node->parent == old_nil) {
+            node->parent = new_nil;
+        }
+    }
+
 
     template <typename Action>
     struct VisitAction {

@@ -308,7 +308,7 @@ TEST_CASE(ComplexTree_InsertMultiple) {
     ASSERT_NOT_NULL(t.find(Complex(2, 0)));
 }
 TEST_CASE(ComplexTree_CustomComparator) {
-    ComplexTree t;
+    ComplexTree t(ComplexCompare{});
     t.insert(Complex(1, 5), Complex(10, 10));
     t.insert(Complex(1, 2), Complex(20, 20));
     t.insert(Complex(2, 0), Complex(30, 30));
@@ -879,9 +879,11 @@ TEST_CASE(FindByPath_EmptyPath) {
 // КОНСТРУКТОР С КОМПАРАТОРОМ 
 
 TEST_CASE(Ctor_WithComparator) {
+    // Обратный компаратор для int
     auto rev = [](const int& a, const int& b){ return a > b; };
-    RedBlackTree<int, int, decltype(rev)> t(rev);
+    RedBlackTree<int, int> t(rev);  // передаём компаратор через конструктор
     t.insert(1, 10); t.insert(5, 50); t.insert(3, 30);
+    // LNR с обратным компаратором даст: 5, 3, 1
     std::vector<int> keys;
     CollectKeys collector{keys};
     t.traverse(traversal::LNR{}, collector);

@@ -494,8 +494,8 @@ const char* reduce_title(const FunctionValue&) { return "Сумма резуль
 const char* reduce_title(const Student&) { return "Сумма курсов"; }
 const char* reduce_title(const Teacher&) { return "Количество преподавателей заданной кафедры"; }
 
-template <typename Key, typename Compare, typename Strategy>
-bool reduce_special(const RedBlackTree<Key, int, Compare>& tree, Strategy strategy) {
+template <typename Key, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, int>& tree, Strategy strategy) {
     long long initial;
     if (!read_value("Начальное значение (long long): ", initial)) return false;
     auto result = tree.reduce(strategy, initial, sum_integer);
@@ -503,8 +503,8 @@ bool reduce_special(const RedBlackTree<Key, int, Compare>& tree, Strategy strate
     return true;
 }
 
-template <typename Key, typename Compare, typename Strategy>
-bool reduce_special(const RedBlackTree<Key, double, Compare>& tree, Strategy strategy) {
+template <typename Key, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, double>& tree, Strategy strategy) {
     double initial;
     if (!read_value("Начальное значение: ", initial)) return false;
     auto result = tree.reduce(strategy, initial, sum_real);
@@ -512,8 +512,8 @@ bool reduce_special(const RedBlackTree<Key, double, Compare>& tree, Strategy str
     return true;
 }
 
-template <typename Key, typename Compare, typename Strategy>
-bool reduce_special(const RedBlackTree<Key, Complex, Compare>& tree, Strategy strategy) {
+template <typename Key, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, Complex>& tree, Strategy strategy) {
     Complex initial;
     if (!read_value("Начальное значение (re,im): ", initial)) return false;
     auto result = tree.reduce(strategy, initial, sum_complex);
@@ -521,8 +521,8 @@ bool reduce_special(const RedBlackTree<Key, Complex, Compare>& tree, Strategy st
     return true;
 }
 
-template <typename Key, typename Compare, typename Strategy>
-bool reduce_special(const RedBlackTree<Key, std::string, Compare>& tree, Strategy strategy) {
+template <typename Key, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, std::string>& tree, Strategy strategy) {
     std::string initial;
     if (!read_line("Начальная строка (можно пустую): ", initial)) return false;
     std::string result = tree.reduce(strategy, initial, join_strings);
@@ -532,8 +532,8 @@ bool reduce_special(const RedBlackTree<Key, std::string, Compare>& tree, Strateg
     return true;
 }
 
-template <typename Key, typename Compare, typename Strategy>
-bool reduce_special(const RedBlackTree<Key, FunctionValue, Compare>& tree, Strategy strategy) {
+template <typename Key, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, FunctionValue>& tree, Strategy strategy) {
     int argument;
     long long initial;
     if (!read_value("Аргумент функций: ", argument)) return false;
@@ -543,8 +543,8 @@ bool reduce_special(const RedBlackTree<Key, FunctionValue, Compare>& tree, Strat
     return true;
 }
 
-template <typename Key, typename Compare, typename Strategy>
-bool reduce_special(const RedBlackTree<Key, Student, Compare>& tree, Strategy strategy) {
+template <typename Key, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, Student>& tree, Strategy strategy) {
     long long initial;
     if (!read_value("Начальное значение (long long): ", initial)) return false;
     auto result = tree.reduce(strategy, initial, sum_courses);
@@ -552,8 +552,8 @@ bool reduce_special(const RedBlackTree<Key, Student, Compare>& tree, Strategy st
     return true;
 }
 
-template <typename Key, typename Compare, typename Strategy>
-bool reduce_special(const RedBlackTree<Key, Teacher, Compare>& tree, Strategy strategy) {
+template <typename Key, typename Strategy>
+bool reduce_special(const RedBlackTree<Key, Teacher>& tree, Strategy strategy) {
     std::string department;
     long long initial;
     if (!read_line("Кафедра: ", department)) return false;
@@ -583,10 +583,10 @@ bool valid_entries(const Tree& tree, const typename Tree::Node* node) {
            valid_entries(tree, node->left) && valid_entries(tree, node->right);
 }
 
-template <typename Key, typename Value, typename Compare>
-int check_subtree(const RedBlackTree<Key, Value, Compare>& tree,
-                  const typename RedBlackTree<Key, Value, Compare>::Node* node,
-                  const typename RedBlackTree<Key, Value, Compare>::Node* parent,
+template <typename Key, typename Value>
+int check_subtree(const RedBlackTree<Key, Value>& tree,
+                  const typename RedBlackTree<Key, Value>::Node* node,
+                  const typename RedBlackTree<Key, Value>::Node* parent,
                   const Key* lower, const Key* upper) {
     if (node == tree.get_nil()) return 1;
     if (node == nullptr || node->left == nullptr || node->right == nullptr) return 0;
@@ -594,7 +594,6 @@ int check_subtree(const RedBlackTree<Key, Value, Compare>& tree,
     if (lower != nullptr && !tree.get_compare()(*lower, node->key)) return 0;
     if (upper != nullptr && !tree.get_compare()(node->key, *upper)) return 0;
     if (!node->color && (!node->left->color || !node->right->color)) return 0;
-
     int left = check_subtree(tree, node->left, node, lower, &node->key);
     if (left == 0) return 0;
     int right = check_subtree(tree, node->right, node, &node->key, upper);
@@ -602,8 +601,8 @@ int check_subtree(const RedBlackTree<Key, Value, Compare>& tree,
     return left + (node->color ? 1 : 0);
 }
 
-template <typename Key, typename Value, typename Compare>
-bool valid_tree(const RedBlackTree<Key, Value, Compare>& tree) {
+template <typename Key, typename Value>
+bool valid_tree(const RedBlackTree<Key, Value>& tree) {
     if (!tree.get_root()->color || !tree.get_nil()->color) return false;
     if (tree.get_nil()->left != tree.get_nil() || tree.get_nil()->right != tree.get_nil()) return false;
     const Key* lower = nullptr;
@@ -634,8 +633,8 @@ struct ReduceRunner {
     }
 };
 
-template <typename Key, typename Value, typename Compare>
-bool reduce_tree(const RedBlackTree<Key, Value, Compare>& tree) {
+template <typename Key, typename Value>
+bool reduce_tree(const RedBlackTree<Key, Value>& tree) {
     int choice;
     if (!choose_action(reduce_title(tree.get_nil()->value), "Количество элементов", choice)) return false;
     if (choice == 0) return true;
@@ -644,7 +643,7 @@ bool reduce_tree(const RedBlackTree<Key, Value, Compare>& tree) {
     if (!choose_order(order)) return false;
 
     bool done = false;
-    ReduceRunner<RedBlackTree<Key, Value, Compare>, Value> runner{tree, choice, done};
+    ReduceRunner<RedBlackTree<Key, Value>, Value> runner{tree, choice, done};
     if (!apply_order(order, runner)) return false;
     return done;
 }
@@ -699,8 +698,8 @@ struct ShowEntries {
     }
 };
 
-template <typename Key, typename Value, typename Compare>
-bool show_tree(const RedBlackTree<Key, Value, Compare>& tree) {
+template <typename Key, typename Value>
+bool show_tree(const RedBlackTree<Key, Value>& tree) {
     if (tree.empty()) {
         std::cout << "Дерево пусто.\n";
         return true;
@@ -713,7 +712,7 @@ bool show_tree(const RedBlackTree<Key, Value, Compare>& tree) {
     if (choice == 1) {
         int order;
         if (!choose_order(order)) return false;
-        ShowEntries<RedBlackTree<Key, Value, Compare>> action{tree, shown};
+        ShowEntries<RedBlackTree<Key, Value>> action{tree, shown};
         if (!apply_order(order, action)) return false;
         if (shown > 50) std::cout << "Показаны первые 50 из " << shown << " элементов.\n";
     } else {
@@ -725,8 +724,8 @@ bool show_tree(const RedBlackTree<Key, Value, Compare>& tree) {
     return true;
 }
 
-template <typename Key, typename Value, typename Compare>
-bool insert_element(RedBlackTree<Key, Value, Compare>& tree) {
+template <typename Key, typename Value>
+bool insert_element(RedBlackTree<Key, Value>& tree) {
     Key key;
     Value value;
     if (!read_entry(key, value)) return false;
@@ -739,8 +738,8 @@ bool insert_element(RedBlackTree<Key, Value, Compare>& tree) {
     return true;
 }
 
-template <typename Key, typename Value, typename Compare>
-bool erase_element(RedBlackTree<Key, Value, Compare>& tree) {
+template <typename Key, typename Value>
+bool erase_element(RedBlackTree<Key, Value>& tree) {
     Key key;
     if (!read_value("Удаляемый ключ: ", key)) return false;
     bool erased = tree.erase(key);
@@ -748,19 +747,19 @@ bool erase_element(RedBlackTree<Key, Value, Compare>& tree) {
     return true;
 }
 
-template <typename Key, typename Value, typename Compare>
-bool find_element(const RedBlackTree<Key, Value, Compare>& tree) {
+template <typename Key, typename Value>
+bool find_element(const RedBlackTree<Key, Value>& tree) {
     Key key;
     if (!read_value("Искомый ключ: ", key)) return false;
     auto node = tree.find(key);
     if (node == nullptr) std::cout << "Ключ не найден.\n";
-    else print_node<RedBlackTree<Key, Value, Compare>>(node);
+    else print_node<RedBlackTree<Key, Value>>(node);
     return true;
 }
 
-template <typename Key, typename Value, typename Compare>
-bool map_tree(const RedBlackTree<Key, Value, Compare>& tree,
-              RedBlackTree<Key, Value, Compare>& result) {
+template <typename Key, typename Value>
+bool map_tree(const RedBlackTree<Key, Value>& tree,
+              RedBlackTree<Key, Value>& result) {
     std::function<Value(const Value&)> action;
     if (!choose_map(action)) return false;
     if (!action) return true;
@@ -769,9 +768,9 @@ bool map_tree(const RedBlackTree<Key, Value, Compare>& tree,
     return true;
 }
 
-template <typename Key, typename Value, typename Compare>
-bool filter_tree(const RedBlackTree<Key, Value, Compare>& tree,
-                 RedBlackTree<Key, Value, Compare>& result) {
+template <typename Key, typename Value>
+bool filter_tree(const RedBlackTree<Key, Value>& tree,
+                 RedBlackTree<Key, Value>& result) {
     std::function<bool(const Value&)> predicate;
     if (!choose_predicate(predicate)) return false;
     if (!predicate) return true;
@@ -780,9 +779,9 @@ bool filter_tree(const RedBlackTree<Key, Value, Compare>& tree,
     return true;
 }
 
-template <typename Key, typename Value, typename Compare>
-bool extract_tree(const RedBlackTree<Key, Value, Compare>& tree,
-                  RedBlackTree<Key, Value, Compare>& result) {
+template <typename Key, typename Value>
+bool extract_tree(const RedBlackTree<Key, Value>& tree,
+                  RedBlackTree<Key, Value>& result) {
     Key key;
     if (!read_value("Ключ корня поддерева: ", key)) return false;
     bool found = tree.find(key) != nullptr;
@@ -792,8 +791,8 @@ bool extract_tree(const RedBlackTree<Key, Value, Compare>& tree,
     return true;
 }
 
-template <typename Key, typename Value, typename Compare>
-bool find_path(const RedBlackTree<Key, Value, Compare>& tree) {
+template <typename Key, typename Value>
+bool find_path(const RedBlackTree<Key, Value>& tree) {
     int choice;
     if (!choose_action("Абсолютный путь от корня", "Относительный путь от узла", choice)) return false;
     if (choice == 0) return true;
@@ -813,7 +812,7 @@ bool find_path(const RedBlackTree<Key, Value, Compare>& tree) {
     }
     auto node = choice == 1 ? tree.find_by_path(path.c_str()) : tree.find_by_path(key, path.c_str());
     if (node == nullptr) std::cout << "Узел по заданному пути не найден.\n";
-    else print_node<RedBlackTree<Key, Value, Compare>>(node);
+    else print_node<RedBlackTree<Key, Value>>(node);
     return true;
 }
 
