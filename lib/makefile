@@ -11,6 +11,8 @@ APP_SRC = main.cpp
 TEST_SRC = rb_tests_main.cpp
 
 HEADERS = rbTree.h \
+           ienumerable.h \
+           traversals.h \
            dataTypes.h \
            rb_tree_tests.h \
 		   types/person.h \

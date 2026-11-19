@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -698,6 +699,53 @@ struct ShowEntries {
     }
 };
 
+template <typename Tree>
+bool show_selected_nodes(const Tree& tree) {
+    int count;
+    if (!read_choice("Количество посещений (0 — пустой список): ",
+                     0, std::numeric_limits<int>::max(), count)) return false;
+    if (count == 0) {
+        std::cout << "Список путей пуст. Узлы не выбраны.\n";
+        return true;
+    }
+
+    std::cout << "Введите каждый путь отдельной строкой: L — влево, R — вправо.\n"
+                 "Пустая строка — корень. Повтор пути повторяет посещение.\n";
+    std::vector<std::string> paths;
+    for (int i = 0; i < count; ++i) {
+        while (true) {
+            std::cout << "Путь " << i + 1 << ": ";
+            std::string path;
+            if (!read_line("", path)) return false;
+            bool valid = true;
+            for (char direction : path) {
+                if (direction != 'L' && direction != 'R') valid = false;
+            }
+            if (!valid) {
+                std::cout << "В пути допустимы только L и R. Повторите ввод.\n";
+                continue;
+            }
+            if (tree.find_by_path(path.c_str()) == nullptr) {
+                std::cout << "Узел по этому пути не найден. Повторите ввод.\n";
+                continue;
+            }
+            paths.push_back(path);
+            break;
+        }
+    }
+
+    typename Tree::template TreeEnumerator<> enumerator(tree, paths);
+    std::cout << "Выбранные узлы в заданном порядке:\n";
+    std::size_t shown = 0;
+    PrintEntries print{shown};
+    while (enumerator.MoveNext()) {
+        const auto& node = enumerator.GetCurrent();
+        print(node.key, node.value);
+    }
+    if (shown > 50) std::cout << "Показаны первые 50 из " << shown << " посещений.\n";
+    return true;
+}
+
 template <typename Key, typename Value>
 bool show_tree(const RedBlackTree<Key, Value>& tree) {
     if (tree.empty()) {
@@ -705,8 +753,13 @@ bool show_tree(const RedBlackTree<Key, Value>& tree) {
         return true;
     }
     int choice;
-    if (!choose_action("Обход с выводом ключей и значений", "Структура и цвета", choice)) return false;
+    std::cout << "1. Обход с выводом ключей и значений\n"
+                 "2. Структура и цвета\n"
+                 "3. Пользовательский обход по путям\n"
+                 "0. Назад\n";
+    if (!read_choice("Выберите действие: ", 0, 3, choice)) return false;
     if (choice == 0) return true;
+    if (choice == 3) return show_selected_nodes(tree);
 
     std::size_t shown = 0;
     if (choice == 1) {

@@ -1062,7 +1062,311 @@ TEST_CASE(IntegerTree_Traverse_AllStrategies) {
 }
 
 
+template <typename Strategy>
+void check_enumerator_order(Strategy strategy, const int* expected) {
+    IntegerTree tree;
+    const int keys[] = {4, 2, 6, 1, 3, 5, 7};
+    for (int key : keys) tree.insert(key, key * 10);
+    IntegerTree::TreeEnumerator<Strategy> enumerator(tree, strategy);
+    ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+    for (int i = 0; i < 7; ++i) {
+        ASSERT_TRUE(enumerator.MoveNext());
+        const IntegerTree::Node& node = enumerator.GetCurrent();
+        ASSERT_EQ(node.key, expected[i]);
+        ASSERT_EQ(node.value, expected[i] * 10);
+        ASSERT_TRUE(&node == tree.find(expected[i]));
+        ASSERT_TRUE(&node == &enumerator.GetCurrent());
+    }
+    ASSERT_FALSE(enumerator.MoveNext());
+    ASSERT_FALSE(enumerator.MoveNext());
+    ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+    enumerator.Reset();
+    ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+    for (int i = 0; i < 7; ++i) {
+        ASSERT_TRUE(enumerator.MoveNext());
+        ASSERT_EQ(enumerator.GetCurrent().key, expected[i]);
+    }
+    ASSERT_FALSE(enumerator.MoveNext());
+}
+
+TEST_CASE(TreeEnumerator_AllOrders) {
+    const int nlr[] = {4, 2, 1, 3, 6, 5, 7};
+    const int nrl[] = {4, 6, 7, 5, 2, 3, 1};
+    const int lnr[] = {1, 2, 3, 4, 5, 6, 7};
+    const int rnl[] = {7, 6, 5, 4, 3, 2, 1};
+    const int lrn[] = {1, 3, 2, 5, 7, 6, 4};
+    const int rln[] = {7, 5, 6, 3, 1, 2, 4};
+    check_enumerator_order(traversal::NLR{}, nlr);
+    check_enumerator_order(traversal::NRL{}, nrl);
+    check_enumerator_order(traversal::LNR{}, lnr);
+    check_enumerator_order(traversal::RNL{}, rnl);
+    check_enumerator_order(traversal::LRN{}, lrn);
+    check_enumerator_order(traversal::RLN{}, rln);
+}
+
+TEST_CASE(TreeEnumerator_Empty) {
+    IntegerTree tree;
+    IntegerTree::TreeEnumerator<> enumerator(tree);
+    ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+    ASSERT_FALSE(enumerator.MoveNext());
+    enumerator.Reset();
+    ASSERT_FALSE(enumerator.MoveNext());
+    ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+}
+
+TEST_CASE(TreeEnumerator_ResetDuringTraversal) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    IntegerTree::TreeEnumerator<> enumerator(tree);
+    ASSERT_TRUE(enumerator.MoveNext());
+    ASSERT_TRUE(enumerator.MoveNext());
+    enumerator.Reset();
+    ASSERT_TRUE(enumerator.MoveNext());
+    ASSERT_EQ(enumerator.GetCurrent().key, 1);
+}
+
+TEST_CASE(TreeEnumerator_Single) {
+    IntegerTree tree;
+    tree.insert(1, 10);
+    IntegerTree::TreeEnumerator<> enumerator(tree);
+    ASSERT_TRUE(enumerator.MoveNext());
+    ASSERT_EQ(enumerator.GetCurrent().value, 10);
+    ASSERT_FALSE(enumerator.MoveNext());
+    enumerator.Reset();
+    ASSERT_TRUE(enumerator.MoveNext());
+    ASSERT_EQ(enumerator.GetCurrent().key, 1);
+}
+
+TEST_CASE(TreeEnumerator_Independent) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    IntegerTree::TreeEnumerator<> first(tree);
+    IntegerTree::TreeEnumerator<traversal::RNL> second(tree);
+    ASSERT_TRUE(first.MoveNext());
+    ASSERT_TRUE(second.MoveNext());
+    ASSERT_EQ(first.GetCurrent().key, 1);
+    ASSERT_EQ(second.GetCurrent().key, 3);
+    first.Reset();
+    ASSERT_TRUE(second.MoveNext());
+    ASSERT_EQ(second.GetCurrent().key, 2);
+}
+
+TEST_CASE(TreeEnumerator_Interface) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    IEnumerator<IntegerTree::Node>* enumerator = tree.GetEnumerator();
+    std::vector<int> keys;
+    while (enumerator->MoveNext()) keys.push_back(enumerator->GetCurrent().key);
+    enumerator->Reset();
+    bool restarted = enumerator->MoveNext();
+    delete enumerator;
+    ASSERT_TRUE(restarted);
+    ASSERT_TRUE(keys == std::vector<int>({1, 2, 3}));
+
+    enumerator = tree.GetEnumerator(traversal::NLR{});
+    keys.clear();
+    while (enumerator->MoveNext()) keys.push_back(enumerator->GetCurrent().key);
+    delete enumerator;
+    ASSERT_TRUE(keys == std::vector<int>({2, 1, 3}));
+}
+
+struct EnumeratorCountingOrder {
+    int& calls;
+    template <typename V, typename L, typename R>
+    void operator()(const V& visit, const L& left, const R& right) const {
+        ++calls;
+        visit();
+        left();
+        right();
+    }
+};
+
+TEST_CASE(TreeEnumerator_Lazy) {
+    IntegerTree tree;
+    for (int i = 0; i < 100; ++i) tree.insert(i, i);
+    int calls = 0;
+    IntegerTree::TreeEnumerator<EnumeratorCountingOrder> enumerator(tree, EnumeratorCountingOrder{calls});
+    ASSERT_EQ(calls, 0);
+    ASSERT_TRUE(enumerator.MoveNext());
+    ASSERT_EQ(calls, 1);
+    ASSERT_TRUE(&enumerator.GetCurrent() == tree.get_root());
+}
+
+struct EnumeratorThrowVisit {
+    int& calls;
+    void operator()(const int&, const int&) const {
+        if (++calls == 2) throw std::runtime_error("visit");
+    }
+};
+
+struct EnumeratorThrowReduce {
+    int& calls;
+    int operator()(const int& result, const int& value) const {
+        if (++calls == 2) throw std::runtime_error("reduce");
+        return result + value;
+    }
+};
+
+TEST_CASE(TreeEnumerator_ActionException) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    std::string before = tree.to_string();
+    int calls = 0;
+    ASSERT_THROW(tree.traverse(traversal::NLR{}, EnumeratorThrowVisit{calls}), std::runtime_error);
+    ASSERT_EQ(calls, 2);
+    calls = 0;
+    ASSERT_THROW(tree.reduce(traversal::LNR{}, 0, EnumeratorThrowReduce{calls}), std::runtime_error);
+    ASSERT_EQ(calls, 2);
+    ASSERT_EQ(tree.to_string(), before);
+}
+
+TEST_CASE(TreeEnumerator_SelectedOrder) {
+    IntegerTree tree;
+    const int keys[] = {4, 2, 6, 1, 3, 5, 7};
+    for (int key : keys) tree.insert(key, key * 10);
+    std::vector<std::string> paths = {"R", "", "LL", "R"};
+    IntegerTree::TreeEnumerator<> enumerator(tree, paths);
+    const int expected[] = {6, 4, 1, 6};
+    ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+    for (int i = 0; i < 4; ++i) {
+        ASSERT_TRUE(enumerator.MoveNext());
+        const IntegerTree::Node& node = enumerator.GetCurrent();
+        ASSERT_EQ(node.key, expected[i]);
+        ASSERT_EQ(node.value, expected[i] * 10);
+        ASSERT_TRUE(&node == tree.find(expected[i]));
+    }
+    ASSERT_FALSE(enumerator.MoveNext());
+    ASSERT_FALSE(enumerator.MoveNext());
+    ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+}
+
+TEST_CASE(TreeEnumerator_SelectedReset) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    std::vector<std::string> paths = {"R", "L"};
+    IntegerTree::TreeEnumerator<> enumerator(tree, paths);
+    for (int repeat = 0; repeat < 2; ++repeat) {
+        ASSERT_TRUE(enumerator.MoveNext());
+        enumerator.Reset();
+        ASSERT_THROW(enumerator.GetCurrent(), std::out_of_range);
+        ASSERT_TRUE(enumerator.MoveNext());
+        ASSERT_EQ(enumerator.GetCurrent().key, 3);
+        ASSERT_TRUE(enumerator.MoveNext());
+        ASSERT_EQ(enumerator.GetCurrent().key, 1);
+        ASSERT_FALSE(enumerator.MoveNext());
+        enumerator.Reset();
+    }
+}
+
+TEST_CASE(TreeEnumerator_SelectedEmpty) {
+    IntegerTree tree;
+    std::vector<std::string> paths;
+    IntegerTree::TreeEnumerator<> empty(tree, paths);
+    ASSERT_FALSE(empty.MoveNext());
+    empty.Reset();
+    ASSERT_FALSE(empty.MoveNext());
+    ASSERT_THROW(empty.GetCurrent(), std::out_of_range);
+    IntegerTree nonempty_tree;
+    nonempty_tree.insert(1, 10);
+    IntegerTree::TreeEnumerator<> nonempty(nonempty_tree, paths);
+    ASSERT_FALSE(nonempty.MoveNext());
+    nonempty.Reset();
+    ASSERT_FALSE(nonempty.MoveNext());
+}
+
+TEST_CASE(TreeEnumerator_SelectedInvalid) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    std::string before = tree.to_string();
+    const std::string invalid[] = {"R", "LL", "U", "LX", ".", std::string("L\0R", 3)};
+    for (const std::string& path : invalid) {
+        std::vector<std::string> paths = {"", path, "L"};
+        ASSERT_THROW(IntegerTree::TreeEnumerator<>(tree, paths), std::invalid_argument);
+    }
+    ASSERT_EQ(tree.to_string(), before);
+    IntegerTree empty;
+    std::vector<std::string> root = {""};
+    ASSERT_THROW(IntegerTree::TreeEnumerator<>(empty, root), std::invalid_argument);
+}
+
+TEST_CASE(TreeEnumerator_SelectedIndependent) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    std::vector<std::string> paths = {"R", ""};
+    IntegerTree::TreeEnumerator<> selected(tree, paths);
+    paths.clear();
+    IntegerTree::TreeEnumerator<> standard(tree);
+    ASSERT_TRUE(selected.MoveNext());
+    ASSERT_EQ(selected.GetCurrent().key, 3);
+    ASSERT_TRUE(standard.MoveNext());
+    ASSERT_EQ(standard.GetCurrent().key, 1);
+    standard.Reset();
+    ASSERT_TRUE(selected.MoveNext());
+    ASSERT_EQ(selected.GetCurrent().key, 2);
+    ASSERT_FALSE(selected.MoveNext());
+}
+
+TEST_CASE(TreeEnumerator_SelectedInterface) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    std::vector<std::string> paths = {"R", "L", "R"};
+    IEnumerator<IntegerTree::Node>* enumerator = tree.GetEnumerator(paths);
+    std::vector<int> keys;
+    while (enumerator->MoveNext()) keys.push_back(enumerator->GetCurrent().key);
+    enumerator->Reset();
+    bool restarted = enumerator->MoveNext();
+    int first = enumerator->GetCurrent().key;
+    delete enumerator;
+    ASSERT_TRUE(keys == std::vector<int>({3, 1, 3}));
+    ASSERT_TRUE(restarted);
+    ASSERT_EQ(first, 3);
+}
+
+TEST_CASE(TreeEnumerator_SelectedRootOnly) {
+    IntegerTree tree;
+    tree.insert(2, 20);
+    tree.insert(1, 10);
+    tree.insert(3, 30);
+    int calls = 0;
+    std::vector<std::string> paths = {""};
+    IntegerTree::TreeEnumerator<EnumeratorCountingOrder> enumerator(tree, paths, EnumeratorCountingOrder{calls});
+    ASSERT_TRUE(enumerator.MoveNext());
+    ASSERT_TRUE(&enumerator.GetCurrent() == tree.get_root());
+    ASSERT_FALSE(enumerator.MoveNext());
+    ASSERT_EQ(calls, 0);
+}
+
 void run_rb_tree_tests() {
+    RUN_TEST(TreeEnumerator_SelectedOrder);
+    RUN_TEST(TreeEnumerator_SelectedReset);
+    RUN_TEST(TreeEnumerator_SelectedEmpty);
+    RUN_TEST(TreeEnumerator_SelectedInvalid);
+    RUN_TEST(TreeEnumerator_SelectedIndependent);
+    RUN_TEST(TreeEnumerator_SelectedInterface);
+    RUN_TEST(TreeEnumerator_SelectedRootOnly);
+    RUN_TEST(TreeEnumerator_AllOrders);
+    RUN_TEST(TreeEnumerator_Empty);
+    RUN_TEST(TreeEnumerator_ResetDuringTraversal);
+    RUN_TEST(TreeEnumerator_Single);
+    RUN_TEST(TreeEnumerator_Independent);
+    RUN_TEST(TreeEnumerator_Interface);
+    RUN_TEST(TreeEnumerator_Lazy);
+    RUN_TEST(TreeEnumerator_ActionException);
     std::cout << "\n========================================\n";
     std::cout << "      RedBlackTree Unit Tests\n";
     std::cout << "========================================\n";

@@ -7,8 +7,11 @@
 #include <sstream>
 #include <limits>
 #include <type_traits>
+#include <vector>
+#include <stdexcept>
 
 #include "traversals.h"
+#include "ienumerable.h"
 
 template <typename Key, typename Value>
 class RedBlackTree {
@@ -27,6 +30,109 @@ public:
     };
 
 
+    // Дерево должно существовать и не изменяться во время обхода.
+    template <typename Strategy = traversal::LNR>
+    class TreeEnumerator : public IEnumerator<Node> {
+    private:
+        struct Step {
+            const Node* node;
+            bool visit;
+        };
+
+        struct AddStep {
+            std::vector<Step>& steps;
+            const Node* node;
+            const Node* nil;
+            bool visit;
+
+            void operator()() const {
+                if (node != nil) steps.push_back(Step{node, visit});
+            }
+        };
+
+        const Node* nil;
+        const Node* current;
+        Strategy strategy;
+        std::vector<Step> initial_steps;
+        std::vector<Step> pending;
+        std::vector<Step> next_steps;
+
+    public:
+        TreeEnumerator(const RedBlackTree& tree, Strategy order = Strategy(),
+                       const Node* first = nullptr)
+            : nil(tree.nil), current(nullptr), strategy(order) {
+            const Node* start = first;
+            if (start == nullptr) start = tree.root;
+            if (start != nil) initial_steps.push_back(Step{start, false});
+            next_steps.reserve(3);
+            Reset();
+        }
+
+        TreeEnumerator(const RedBlackTree& tree, const std::vector<std::string>& paths,
+                       Strategy order = Strategy())
+            : nil(tree.nil), current(nullptr), strategy(order) {
+            // Стек выдаёт последний добавленный шаг первым.
+            for (std::size_t i = paths.size(); i > 0; --i) {
+                for (char direction : paths[i - 1]) {
+                    if (direction != 'L' && direction != 'R')
+                        throw std::invalid_argument("Invalid enumeration path: " + paths[i - 1]);
+                }
+                const Node* node = tree.find_by_path(paths[i - 1].c_str());
+                if (node == nullptr)
+                    throw std::invalid_argument("Invalid enumeration path: " + paths[i - 1]);
+                initial_steps.push_back(Step{node, true});
+            }
+            Reset();
+        }
+
+        bool MoveNext() override {
+            current = nullptr;
+            while (!pending.empty()) {
+                Step step = pending.back();
+                pending.pop_back();
+                if (step.visit) {
+                    current = step.node;
+                    return true;
+                }
+
+                next_steps.clear();
+                AddStep visit{next_steps, step.node, nil, true};
+                AddStep left{next_steps, step.node->left, nil, false};
+                AddStep right{next_steps, step.node->right, nil, false};
+                strategy(visit, left, right);
+                for (std::size_t i = next_steps.size(); i > 0; --i)
+                    pending.push_back(next_steps[i - 1]);
+            }
+            return false;
+        }
+
+        const Node& GetCurrent() const override {
+            if (current == nullptr)
+                throw std::out_of_range("Enumerator not positioned");
+            return *current;
+        }
+
+        void Reset() override {
+            current = nullptr;
+            pending = initial_steps;
+            next_steps.clear();
+        }
+    };
+
+   
+    IEnumerator<Node>* GetEnumerator() const {
+        return new TreeEnumerator<>(*this);
+    }
+
+    IEnumerator<Node>* GetEnumerator(const std::vector<std::string>& paths) const {
+        return new TreeEnumerator<>(*this, paths);
+    }
+
+    template <typename Strategy>
+    IEnumerator<Node>* GetEnumerator(Strategy strategy) const {
+        return new TreeEnumerator<Strategy>(*this, strategy);
+    }
+
     RedBlackTree() : comp(std::less<Key>()) {
         static_assert(std::is_invocable_r_v<bool, std::less<Key>, const Key&, const Key&>, "Key must be comparable with std::less<Key>");
         validate_comparator();
@@ -37,13 +143,6 @@ public:
         nil->parent = nil;
         root = nil;
     }
-    //     nil = new Node(Key(), Value(), nullptr);
-    //     nil->color = true;
-    //     nil->left = nil;
-    //     nil->right = nil;
-    //     nil->parent = nil;
-    //     root = nil;
-    // }
 
     template <typename Compare>
     explicit RedBlackTree(const Compare& comparator) : comp(comparator) {
@@ -71,18 +170,12 @@ public:
 
     RedBlackTree(RedBlackTree&& other) : RedBlackTree(other.comp) {
         Node* temp_nil = nil;
+
         root = other.root;
         nil = other.nil;
-        
-        if (root != other.nil) {
-            fix_nil_links(root, other.nil, nil);
-        }
-        
+
         other.root = temp_nil;
         other.nil = temp_nil;
-        other.nil->left = temp_nil;
-        other.nil->right = temp_nil;
-        other.nil->parent = temp_nil;
     }
 
     RedBlackTree& operator=(const RedBlackTree& other) {
@@ -198,7 +291,11 @@ public:
 
     template <typename Strategy, typename Action>
     void traverse(Strategy strategy, const Action& action) const {
-        traverse_subtree(root, strategy, action);
+        TreeEnumerator<Strategy> enumerator(*this, strategy);
+        while (enumerator.MoveNext()) {
+            const Node& node = enumerator.GetCurrent();
+            action(node.key, node.value);
+        }
     }
     
     RedBlackTree map(const std::function<Value(const Value&)>& action) const {
@@ -216,7 +313,9 @@ public:
     template <typename Strategy, typename Result, typename Action>
     Result reduce(Strategy strategy, const Result& initial, const Action& action) const {
         Result result = initial;
-        reduce_subtree(root, strategy, result, action);
+        TreeEnumerator<Strategy> enumerator(*this, strategy);
+        while (enumerator.MoveNext())
+            result = action(result, enumerator.GetCurrent().value);
         return result;
     }
 
@@ -312,151 +411,31 @@ private:
         }
     }
 
-    // Приватная функция для замены указателей на nil при move-конструкторе
-    void fix_nil_links(Node* node, Node* old_nil, Node* new_nil) {
-        if (node == old_nil) return;
-        
-        if (node->left == old_nil) {
-            node->left = new_nil;
-        } else {
-            fix_nil_links(node->left, old_nil, new_nil);
-        }
-        
-        if (node->right == old_nil) {
-            node->right = new_nil;
-        } else {
-            fix_nil_links(node->right, old_nil, new_nil);
-        }
-        
-        if (node->parent == old_nil) {
-            node->parent = new_nil;
-        }
-    }
-
-
-    template <typename Action>
-    struct VisitAction {
-        const Node* node;
-        const Action& action;
-
-        void operator()() const {
-            action(node->key, node->value);
-        }
-    };
-
-    template <typename Strategy, typename Action>
-    struct TraverseLeftAction {
-        const RedBlackTree& tree;
-        const Node* node;
-        Strategy strategy;
-        const Action& action;
-
-        void operator()() const {
-            tree.traverse_subtree(node->left, strategy, action);
-        }
-    };
-
-    template <typename Strategy, typename Action>
-    struct TraverseRightAction {
-        const RedBlackTree& tree;
-        const Node* node;
-        Strategy strategy;
-        const Action& action;
-
-        void operator()() const {
-            tree.traverse_subtree(node->right, strategy, action);
-        }
-    };
-
-    template <typename Strategy, typename Action>
-    void traverse_subtree(const Node* node, Strategy strategy, const Action& action) const {
-        if (node == nil) return;
-
-        VisitAction<Action> visit{node, action};
-        TraverseLeftAction<Strategy, Action> left{*this, node, strategy, action};
-        TraverseRightAction<Strategy, Action> right{*this, node, strategy, action};
-
-        strategy(visit, left, right);
-    }
 
     void map_subtree(const Node* node, RedBlackTree& result,
                      const std::function<Value(const Value&)>& action) const {
-        if (node == nil) return;
-
-        map_subtree(node->left, result, action);
-
-        Value new_value = action(node->value);
-        result.insert(node->key, new_value);
-
-        map_subtree(node->right, result, action);
+        TreeEnumerator<traversal::LNR> enumerator(*this, traversal::LNR{}, node);
+        while (enumerator.MoveNext()) {
+            const Node& current = enumerator.GetCurrent();
+            result.insert(current.key, action(current.value));
+        }
     }
 
     void where_subtree(const Node* node, RedBlackTree& result,
                        const std::function<bool(const Value&)>& predicate) const {
-        if (node == nil) return;
-
-        where_subtree(node->left, result, predicate);
-
-        if (predicate(node->value)) result.insert(node->key, node->value);
-
-        where_subtree(node->right, result, predicate);
-    }
-
-    template <typename Result, typename Action>
-    struct ReduceVisitAction {
-        const Node* node;
-        Result& result;
-        const Action& action;
-
-        void operator()() const {
-            result = action(result, node->value);
+        TreeEnumerator<traversal::LNR> enumerator(*this, traversal::LNR{}, node);
+        while (enumerator.MoveNext()) {
+            const Node& current = enumerator.GetCurrent();
+            if (predicate(current.value)) result.insert(current.key, current.value);
         }
-    };
-
-    template <typename Strategy, typename Result, typename Action>
-    struct ReduceTraverseLeftAction {
-        const RedBlackTree& tree;
-        const Node* node;
-        Strategy strategy;
-        Result& result;
-        const Action& action;
-
-        void operator()() const {
-            tree.reduce_subtree(node->left, strategy, result, action);
-        }
-    };
-
-    template <typename Strategy, typename Result, typename Action>
-    struct ReduceTraverseRightAction {
-        const RedBlackTree& tree;
-        const Node* node;
-        Strategy strategy;
-        Result& result;
-        const Action& action;
-
-        void operator()() const {
-            tree.reduce_subtree(node->right, strategy, result, action);
-        }
-    };
-
-    template <typename Strategy, typename Result, typename Action>
-    void reduce_subtree(const Node* node, Strategy strategy, 
-                    Result& result, const Action& action) const {
-        if (node == nil) return;
-
-        ReduceVisitAction<Result, Action> visit{node, result, action};
-        ReduceTraverseLeftAction<Strategy, Result, Action> left{*this, node, strategy, result, action};
-        ReduceTraverseRightAction<Strategy, Result, Action> right{*this, node, strategy, result, action};
-
-        strategy(visit, left, right);
     }
 
     void merge_subtree(const Node* node, RedBlackTree& result) const {
-        if (node == nil) return;
-
-        merge_subtree(node->left, result);
-        result.insert(node->key, node->value);
-        merge_subtree(node->right, result);
+        TreeEnumerator<traversal::LNR> enumerator(*this, traversal::LNR{}, node);
+        while (enumerator.MoveNext()) {
+            const Node& current = enumerator.GetCurrent();
+            result.insert(current.key, current.value);
+        }
     }
 
     bool equal_subtrees(const Node* node, const Node* other, const Node* other_nil) const {
@@ -507,10 +486,20 @@ private:
 
     void to_string_subtree(const Node* node, const std::string& path,
                            std::ostringstream& stream) const {
-        if (node == nil) return;
-        write_node(node, path, stream);
-        to_string_subtree(node->left, path + "L", stream);
-        to_string_subtree(node->right, path + "R", stream);
+        TreeEnumerator<traversal::NLR> enumerator(*this, traversal::NLR{}, node);
+        while (enumerator.MoveNext()) {
+            const Node* current = &enumerator.GetCurrent();
+            const Node* parent = current;
+            std::string reversed;
+            while (parent != node) {
+                reversed += parent == parent->parent->left ? 'L' : 'R';
+                parent = parent->parent;
+            }
+            std::string node_path = path;
+            for (std::size_t i = reversed.size(); i > 0; --i)
+                node_path += reversed[i - 1];
+            write_node(current, node_path, stream);
+        }
     }
 
     struct StringRecord {
